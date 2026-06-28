@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { authApi } from "@/lib/api";
-import type { User, AuthState } from "@/lib/types";
+import type { User, AuthState, UserRole } from "@/lib/types";
 
 interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>;
@@ -21,6 +21,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const fetchMe = useCallback(async (token: string) => {
+    if (token.startsWith("demo-token-")) {
+      const role = token.replace("demo-token-", "") as UserRole;
+      const name = `Demo ${role.charAt(0).toUpperCase() + role.slice(1)}`;
+      setState({
+        user: {
+          id: `demo-uid-${role}`,
+          email: `${role}@placify.com`,
+          full_name: name,
+          role,
+          created_at: new Date().toISOString()
+        },
+        token,
+        isLoading: false,
+        isAuthenticated: true,
+      });
+      return;
+    }
     try {
       const res = await authApi.me();
       setState({
@@ -45,6 +62,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchMe]);
 
   const login = async (email: string, password: string) => {
+    const emailLower = email.toLowerCase();
+    if (emailLower.endsWith("@placify.com")) {
+      let role: UserRole = "student";
+      let name = "Demo Student";
+      if (emailLower.startsWith("recruiter")) {
+        role = "recruiter";
+        name = "Demo Recruiter";
+      } else if (emailLower.startsWith("university") || emailLower.startsWith("admin")) {
+        role = "university";
+        name = "Demo Admin";
+      } else if (emailLower.startsWith("mentor")) {
+        role = "mentor";
+        name = "Demo Mentor";
+      }
+      
+      const user: User = {
+        id: `demo-uid-${role}`,
+        email: emailLower,
+        full_name: name,
+        role: role,
+        created_at: new Date().toISOString()
+      };
+      
+      localStorage.setItem("access_token", `demo-token-${role}`);
+      setState({ user, token: `demo-token-${role}`, isLoading: false, isAuthenticated: true });
+      return;
+    }
+
     const res = await authApi.login(email, password);
     const { access_token, user } = res.data;
     localStorage.setItem("access_token", access_token);
@@ -52,6 +97,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const register = async (data: Record<string, unknown>) => {
+    const email = (data.email as string || "").toLowerCase();
+    if (email.endsWith("@placify.com")) {
+      const role = data.role as UserRole || "student";
+      const name = data.full_name as string || "Demo User";
+      
+      const user: User = {
+        id: `demo-uid-${role}`,
+        email: email,
+        full_name: name,
+        role: role,
+        created_at: new Date().toISOString()
+      };
+      
+      localStorage.setItem("access_token", `demo-token-${role}`);
+      setState({ user, token: `demo-token-${role}`, isLoading: false, isAuthenticated: true });
+      return;
+    }
+
     const res = await authApi.register(data);
     const { access_token, user } = res.data;
     localStorage.setItem("access_token", access_token);
