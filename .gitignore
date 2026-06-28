@@ -1,0 +1,51 @@
+# ── Node / Frontend Dependencies & Cache ──────────────────────────────────────
+node_modules/
+.next/
+out/
+build/
+.vercel
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Python / Backend Cache & Virtual Env ─────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# ── Machine Learning Artifacts ────────────────────────────────────────────────
+# Ignore local model weights/downloads to prevent pushing large files to git
+backend/ml/models/*
+!backend/ml/models/.gitkeep
+
+# ── Secrets & Environment Configurations ──────────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+*.pem
+
+# ── IDEs, Editors & OS Files ──────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
