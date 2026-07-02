@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { aiApi } from "@/lib/api";
 import { BookOpen, Send, Loader2, Bot, User } from "lucide-react";
+import { isDemoMode, MOCK_CAREER_RESPONSES } from "@/lib/mock-data";
 
 interface Message { role: "user" | "assistant"; content: string; }
 
@@ -20,11 +21,28 @@ export default function CareerGuidancePage() {
     if (!input.trim() || loading) return;
     const userMsg: Message = { role: "user", content: input };
     setMessages(prev => [...prev, userMsg]);
+    const query = input;
     setInput("");
     setLoading(true);
+
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 800 + Math.random() * 800));
+      const lower = query.toLowerCase();
+      let response = MOCK_CAREER_RESPONSES.default;
+      if (lower.includes("skill") || lower.includes("learn") || lower.includes("technology") || lower.includes("data science")) response = MOCK_CAREER_RESPONSES.skills;
+      else if (lower.includes("salary") || lower.includes("package") || lower.includes("ctc") || lower.includes("negotiate")) response = MOCK_CAREER_RESPONSES.salary;
+      else if (lower.includes("interview") || lower.includes("crack") || lower.includes("prepare") || lower.includes("tips")) response = MOCK_CAREER_RESPONSES.interview;
+      else if (lower.includes("resume") || lower.includes("cv") || lower.includes("ats")) response = MOCK_CAREER_RESPONSES.resume;
+      else if (lower.includes("placement") || lower.includes("campus") || lower.includes("chance") || lower.includes("probability")) response = MOCK_CAREER_RESPONSES.placement;
+      else if (lower.includes("faang") || lower.includes("google") || lower.includes("amazon") || lower.includes("meta") || lower.includes("microsoft")) response = MOCK_CAREER_RESPONSES.faang;
+      setMessages(prev => [...prev, { role: "assistant", content: response }]);
+      setLoading(false);
+      return;
+    }
+
     try {
       const history = messages.map(m => ({ role: m.role, content: m.content }));
-      const res = await aiApi.careerGuidance(input, history);
+      const res = await aiApi.careerGuidance(query, history);
       setMessages(prev => [...prev, { role: "assistant", content: res.data.response }]);
     } catch {
       setMessages(prev => [...prev, { role: "assistant", content: "I'm having trouble connecting right now. Please check if the backend is running with a Gemini API key configured." }]);

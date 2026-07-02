@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { MessageSquare, Loader2, Send, CheckCircle, Star, ChevronRight } from "lucide-react";
 import type { Interview, InterviewFeedback } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_INTERVIEW_QUESTIONS, MOCK_INTERVIEW_FEEDBACK } from "@/lib/mock-data";
 
 type Stage = "setup" | "active" | "complete";
 
@@ -30,6 +31,28 @@ export default function InterviewPage() {
 
   const startInterview = async () => {
     setLoading(true);
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 1000));
+      const questions = MOCK_INTERVIEW_QUESTIONS[config.interview_type] || MOCK_INTERVIEW_QUESTIONS.mixed;
+      const demoSession: Interview = {
+        id: `demo-interview-${Date.now()}`,
+        student_id: "demo-uid-student",
+        interview_type: config.interview_type,
+        difficulty: config.difficulty,
+        questions_asked: questions.slice(0, config.num_questions),
+        current_question: questions[0],
+        status: "active",
+        responses: [],
+        started_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+      setSession(demoSession);
+      setStage("active");
+      setQIndex(0);
+      toast.success("Interview started! Good luck 🎯");
+      setLoading(false);
+      return;
+    }
     try {
       const res = await interviewsApi.start(config);
       setSession(res.data);
@@ -43,6 +66,24 @@ export default function InterviewPage() {
   const submitAnswer = async () => {
     if (!session || !answer.trim()) return;
     setLoading(true);
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 1200));
+      const score = Math.floor(Math.random() * 3) + 7; // 7-9
+      setEvalResult({ score, feedback: `Good answer! Score: ${score}/10. ${score >= 8 ? 'Well-structured response with relevant examples.' : 'Consider adding more specific examples and quantifying your impact.'}` });
+      setAnswer("");
+      const nextIdx = qIndex + 1;
+      if (nextIdx >= session.questions_asked.length) {
+        await new Promise(r => setTimeout(r, 800));
+        setFeedback(MOCK_INTERVIEW_FEEDBACK);
+        setStage("complete");
+      } else {
+        setQIndex(nextIdx);
+        setSession(prev => prev ? { ...prev, current_question: prev.questions_asked[nextIdx] } : prev);
+        setTimeout(() => setEvalResult(null), 2000);
+      }
+      setLoading(false);
+      return;
+    }
     try {
       const res = await interviewsApi.submitAnswer({
         interview_id: session.id,

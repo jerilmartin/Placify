@@ -5,6 +5,7 @@ import { mentorsApi } from "@/lib/api";
 import { LayoutDashboard, Calendar, Star, Clock } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { cn, getStatusColor } from "@/lib/utils";
+import { isDemoMode, MOCK_MENTOR_SESSIONS } from "@/lib/mock-data";
 // We use a general type here since MentorSessionResponse is not fully in types.ts
 type Session = {
   id: string;
@@ -21,6 +22,11 @@ export default function MentorDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isDemoMode()) {
+      setSessions(MOCK_MENTOR_SESSIONS as Session[]);
+      setLoading(false);
+      return;
+    }
     mentorsApi.listSessions().then(r => setSessions(r.data)).catch(() => {}).finally(() => setLoading(false));
   }, []);
 

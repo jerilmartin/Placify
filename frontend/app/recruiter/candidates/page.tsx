@@ -6,6 +6,7 @@ import { Users, Search, Brain, Loader2, Award, Briefcase, Filter, ArrowUpRight, 
 import type { StudentProfile, Job } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_STUDENT_PROFILES, MOCK_JOBS } from "@/lib/mock-data";
 
 export default function CandidatesPage() {
   const [candidates, setCandidates] = useState<StudentProfile[]>([]);
@@ -15,8 +16,13 @@ export default function CandidatesPage() {
   const [isAiSearching, setIsAiSearching] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Fetch initial candidates and job postings to filter by
   useEffect(() => {
+    if (isDemoMode()) {
+      setCandidates(MOCK_STUDENT_PROFILES);
+      setJobs(MOCK_JOBS);
+      setLoading(false);
+      return;
+    }
     Promise.all([
       studentsApi.list().catch(() => ({ data: [] })),
       jobsApi.list().catch(() => ({ data: [] }))
@@ -33,6 +39,7 @@ export default function CandidatesPage() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
+      if (isDemoMode()) { setCandidates(MOCK_STUDENT_PROFILES); return; }
       setLoading(true);
       studentsApi.list()
         .then(res => setCandidates(res.data))
@@ -42,9 +49,22 @@ export default function CandidatesPage() {
     }
 
     setIsAiSearching(true);
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 1200));
+      const lower = searchQuery.toLowerCase();
+      const filtered = MOCK_STUDENT_PROFILES.filter(c =>
+        c.full_name?.toLowerCase().includes(lower) ||
+        c.skills?.some(s => s.toLowerCase().includes(lower)) ||
+        c.course?.toLowerCase().includes(lower)
+      );
+      setCandidates(filtered.length > 0 ? filtered : MOCK_STUDENT_PROFILES);
+      toast.success("AI search completed");
+      setIsAiSearching(false);
+      return;
+    }
+
     try {
       const res = await recruitersApi.aiSearch(searchQuery);
-      // Backend returns AI matches which may contain profile list or match results
       if (Array.isArray(res.data)) {
         setCandidates(res.data);
       } else if (res.data?.candidates) {
@@ -55,10 +75,9 @@ export default function CandidatesPage() {
       toast.success("AI search completed");
     } catch {
       toast.error("AI Semantic search failed. Falling back to text matching.");
-      // Client side fallback search
       const lower = searchQuery.toLowerCase();
       studentsApi.list().then(res => {
-        const filtered = (res.data as StudentProfile[]).filter(c => 
+        const filtered = (res.data as StudentProfile[]).filter(c =>
           c.full_name?.toLowerCase().includes(lower) ||
           c.skills?.some(s => s.toLowerCase().includes(lower)) ||
           c.course?.toLowerCase().includes(lower)

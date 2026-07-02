@@ -5,6 +5,7 @@ import { resumesApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Upload, FileText, Sparkles, CheckCircle, Loader2, BarChart3, TrendingUp, AlertCircle } from "lucide-react";
 import type { Resume } from "@/lib/types";
+import { isDemoMode, MOCK_RESUMES, MOCK_ATS_RESULT, MOCK_IMPROVE_RESULT } from "@/lib/mock-data";
 
 export default function ResumePage() {
   const [resumes, setResumes] = useState<Resume[]>([]);
@@ -16,11 +17,25 @@ export default function ResumePage() {
   const [drag, setDrag] = useState(false);
 
   useEffect(() => {
+    if (isDemoMode()) {
+      setResumes(MOCK_RESUMES);
+      setSelectedResume(MOCK_RESUMES[0]);
+      return;
+    }
     resumesApi.list().then(r => setResumes(r.data)).catch(() => {});
   }, []);
 
   const handleUpload = async (file: File) => {
     setUploading(true);
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 1200));
+      toast.success("Resume uploaded and parsed!");
+      const newResume = { ...MOCK_RESUMES[0], id: `demo-${Date.now()}`, original_filename: file.name } as Resume;
+      setResumes(prev => [newResume, ...prev]);
+      setSelectedResume(newResume);
+      setUploading(false);
+      return;
+    }
     try {
       const res = await resumesApi.upload(file);
       toast.success("Resume uploaded and parsed!");
@@ -37,6 +52,13 @@ export default function ResumePage() {
   const handleImprove = async () => {
     if (!selectedResume) return;
     setImproving(true);
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 1500));
+      setImproveResult(MOCK_IMPROVE_RESULT);
+      toast.success("AI improvement suggestions ready!");
+      setImproving(false);
+      return;
+    }
     try {
       const res = await resumesApi.improve(selectedResume.id);
       setImproveResult(res.data);
@@ -47,6 +69,11 @@ export default function ResumePage() {
 
   const handleAtsScore = async () => {
     if (!selectedResume) return;
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 1000));
+      setAtsResult(MOCK_ATS_RESULT);
+      return;
+    }
     try {
       const res = await resumesApi.getAtsScore(selectedResume.id);
       setAtsResult(res.data);

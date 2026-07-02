@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Briefcase, MapPin, Clock, TrendingUp, CheckCircle, Loader2, Search, Filter } from "lucide-react";
 import type { JobMatch, Job } from "@/lib/types";
 import { cn, formatPackage, getMatchScoreColor } from "@/lib/utils";
+import { isDemoMode, MOCK_JOB_MATCHES, MOCK_JOBS } from "@/lib/mock-data";
 
 function JobCard({ match, onApply }: { match: JobMatch; onApply: (jobId: string) => void }) {
   const job = match.job;
@@ -76,6 +77,12 @@ export default function JobsPage() {
   const [applying, setApplying] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isDemoMode()) {
+      setMatches(MOCK_JOB_MATCHES);
+      setAllJobs(MOCK_JOBS);
+      setLoading(false);
+      return;
+    }
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -89,6 +96,12 @@ export default function JobsPage() {
 
   const handleApply = async (jobId: string) => {
     setApplying(jobId);
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 800));
+      toast.success("Applied successfully! 🎉");
+      setApplying(null);
+      return;
+    }
     try {
       await applicationsApi.apply(jobId);
       toast.success("Applied successfully! 🎉");

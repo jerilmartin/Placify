@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { useEffect } from "react";
-import { LayoutDashboard, CalendarDays, BarChart3, Users, LogOut, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
+import { LayoutDashboard, CalendarDays, BarChart3, Users, LogOut, Zap, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -18,6 +18,7 @@ export default function UniversityLayout({ children }: { children: React.ReactNo
   const pathname = usePathname();
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace("/login");
@@ -26,11 +27,17 @@ export default function UniversityLayout({ children }: { children: React.ReactNo
     }
   }, [isLoading, isAuthenticated, user, router]);
 
+  useEffect(() => { setSidebarOpen(false); }, [pathname]);
+
   if (isLoading) return <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" /></div>;
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] flex">
-      <aside className="w-60 fixed top-0 left-0 bottom-0 glass border-r border-white/5 flex flex-col z-40">
+      <button onClick={() => setSidebarOpen(!sidebarOpen)} className="mobile-menu-btn" aria-label="Toggle menu">
+        {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+      </button>
+      <div className={cn("sidebar-backdrop", sidebarOpen && "open")} onClick={() => setSidebarOpen(false)} />
+      <aside className={cn("w-60 fixed top-0 left-0 bottom-0 glass border-r border-white/5 flex flex-col z-40 portal-sidebar", sidebarOpen && "open")}>
         <div className="p-5 border-b border-white/5">
           <Link href="/university/dashboard" className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center"><Zap className="w-3.5 h-3.5 text-white" /></div>
@@ -54,7 +61,7 @@ export default function UniversityLayout({ children }: { children: React.ReactNo
           <button onClick={() => logout()} className="sidebar-link w-full text-left text-red-400 hover:bg-red-500/10"><LogOut className="w-4 h-4" /> Sign Out</button>
         </div>
       </aside>
-      <main className="flex-1 ml-60 min-h-screen">{children}</main>
+      <main className="flex-1 ml-60 min-h-screen portal-main">{children}</main>
     </div>
   );
 }

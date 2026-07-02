@@ -8,6 +8,7 @@ import type { PlacementDrive, EligibilityCriteria } from "@/lib/types";
 import { formatDate, formatPackage, getStatusColor } from "@/lib/utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_PLACEMENT_DRIVES } from "@/lib/mock-data";
 
 export default function UniversityDrivesPage() {
   const [drives, setDrives] = useState<PlacementDrive[]>([]);
@@ -33,6 +34,11 @@ export default function UniversityDrivesPage() {
 
   const fetchDrives = async () => {
     setLoading(true);
+    if (isDemoMode()) {
+      setDrives(MOCK_PLACEMENT_DRIVES);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await universitiesApi.listDrives();
       setDrives(res.data || []);

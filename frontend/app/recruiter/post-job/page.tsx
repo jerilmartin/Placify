@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { PlusCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { isDemoMode } from "@/lib/mock-data";
+
 const JOB_TYPES = ["full_time","part_time","internship","contract"];
 const EXP_LEVELS = ["entry","mid","senior"];
 
@@ -35,6 +37,12 @@ export default function PostJobPage() {
     e.preventDefault();
     if (!form.title || !form.company) { toast.error("Title and Company are required"); return; }
     setLoading(true);
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 1000));
+      toast.success("Job posted successfully! 🎉");
+      router.push("/recruiter/jobs");
+      return;
+    }
     try {
       await jobsApi.create({
         ...form,

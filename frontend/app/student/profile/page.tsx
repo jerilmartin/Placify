@@ -6,6 +6,7 @@ import { User, GraduationCap, Link as LinkIcon, Briefcase, Award, Loader2, Spark
 import type { StudentProfile, Project, WorkExperience } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_STUDENT_PROFILE } from "@/lib/mock-data";
 
 export default function StudentProfilePage() {
   const [loading, setLoading] = useState(true);
@@ -33,6 +34,25 @@ export default function StudentProfilePage() {
 
   useEffect(() => {
     setLoading(true);
+    if (isDemoMode()) {
+      const d = MOCK_STUDENT_PROFILE;
+      setFullName(d.full_name || "");
+      setEmail(d.email || "");
+      setPhone(d.phone || "");
+      setLocation(d.location || "");
+      setBio(d.bio || "");
+      setUniversity(d.university || "");
+      setCourse(d.course || "");
+      setGraduationYear(String(d.graduation_year || "2026"));
+      setCgpa(String(d.cgpa || "8.5"));
+      setAchievements(d.achievements || "");
+      setGithubUrl(d.github_url || "");
+      setLinkedinUrl(d.linkedin_url || "");
+      setPortfolioUrl(d.portfolio_url || "");
+      setSkillsText(d.skills?.join(", ") || "");
+      setLoading(false);
+      return;
+    }
     studentsApi.getProfile()
       .then(res => {
         const data: StudentProfile = res.data;
@@ -86,6 +106,13 @@ export default function StudentProfilePage() {
       portfolio_url: portfolioUrl,
       skills
     };
+
+    if (isDemoMode()) {
+      await new Promise(r => setTimeout(r, 600));
+      toast.success("Profile saved successfully!");
+      setSaving(false);
+      return;
+    }
 
     try {
       await studentsApi.updateProfile(payload);

@@ -110,7 +110,40 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-slate-500">
+          {/* Demo Quick Access */}
+          <div className="mt-6 pt-6 border-t border-white/5">
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider text-center mb-3">Quick Demo Access</div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: "Student", email: "student@placify.com", gradient: "from-purple-600 to-violet-600", icon: "🎓" },
+                { label: "Recruiter", email: "recruiter@placify.com", gradient: "from-blue-600 to-cyan-600", icon: "💼" },
+                { label: "University", email: "university@placify.com", gradient: "from-emerald-600 to-teal-600", icon: "🏛️" },
+                { label: "Mentor", email: "mentor@placify.com", gradient: "from-amber-600 to-orange-600", icon: "🧑‍🏫" },
+              ].map(demo => (
+                <button
+                  key={demo.label}
+                  type="button"
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      await login(demo.email, "demo123");
+                      toast.success(`Welcome, Demo ${demo.label}!`);
+                    } catch {
+                      toast.error("Demo login failed");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-gradient-to-r ${demo.gradient} text-white text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50 shadow-lg`}
+                >
+                  <span>{demo.icon}</span> {demo.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5 text-center text-sm text-slate-500">
             Don&apos;t have an account?{" "}
             <Link href="/register" className="text-purple-400 hover:text-purple-300 font-medium transition-colors">
               Create one

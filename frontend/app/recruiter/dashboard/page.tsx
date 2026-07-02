@@ -7,12 +7,18 @@ import Link from "next/link";
 import type { Job } from "@/lib/types";
 import { formatDate, formatPackage, getStatusColor } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_JOBS } from "@/lib/mock-data";
 
 export default function RecruiterDashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isDemoMode()) {
+      setJobs(MOCK_JOBS);
+      setLoading(false);
+      return;
+    }
     jobsApi.list().then(r => setJobs(r.data)).catch(() => {}).finally(() => setLoading(false));
   }, []);
 

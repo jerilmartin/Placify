@@ -8,6 +8,7 @@ import type { Job } from "@/lib/types";
 import { formatDate, formatPackage, getStatusColor } from "@/lib/utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_JOBS } from "@/lib/mock-data";
 
 export default function RecruiterJobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -16,12 +17,18 @@ export default function RecruiterJobsPage() {
 
   const fetchJobs = async () => {
     setLoading(true);
+    if (isDemoMode()) {
+      setJobs(MOCK_JOBS);
+      const counts: Record<string, number> = {};
+      MOCK_JOBS.forEach((j, i) => { counts[j.id] = [45, 12, 28, 67, 8, 15, 22, 34][i] || 0; });
+      setApplicantCounts(counts);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await jobsApi.list();
       const jobsList = res.data || [];
       setJobs(jobsList);
-      
-      // Fetch application counts for each job
       const counts: Record<string, number> = {};
       await Promise.all(
         jobsList.map(async (job: Job) => {

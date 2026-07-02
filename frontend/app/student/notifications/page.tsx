@@ -7,6 +7,7 @@ import type { Notification, NotificationType } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_NOTIFICATIONS } from "@/lib/mock-data";
 
 const getNotificationIcon = (type: NotificationType) => {
   switch (type) {
@@ -36,6 +37,12 @@ export default function StudentNotificationsPage() {
 
   const fetchNotifications = async () => {
     setLoading(true);
+    if (isDemoMode()) {
+      const filtered = unreadOnly ? MOCK_NOTIFICATIONS.filter(n => !n.read) : MOCK_NOTIFICATIONS;
+      setNotifications(filtered);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await notificationsApi.list({ unread_only: unreadOnly });
       setNotifications(res.data || []);

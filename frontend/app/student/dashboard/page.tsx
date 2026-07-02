@@ -9,6 +9,7 @@ import {
   LayoutDashboard, Briefcase, ClipboardList, TrendingUp,
   MessageSquare, ChevronRight, Zap, Target, Award, AlertTriangle
 } from "lucide-react";
+import { isDemoMode, MOCK_DASHBOARD_STATS, MOCK_PLACEMENT_RISK, MOCK_PROFILE_STRENGTH } from "@/lib/mock-data";
 import Link from "next/link";
 
 function StatCard({ icon: Icon, label, value, sub, color }: {
@@ -130,6 +131,13 @@ export default function StudentDashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isDemoMode()) {
+      setStats(MOCK_DASHBOARD_STATS);
+      setRisk(MOCK_PLACEMENT_RISK);
+      setStrength(MOCK_PROFILE_STRENGTH);
+      setLoading(false);
+      return;
+    }
     const fetchData = async () => {
       try {
         const [statsRes, riskRes, strengthRes] = await Promise.allSettled([

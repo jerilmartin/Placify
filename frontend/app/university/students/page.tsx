@@ -6,6 +6,7 @@ import { Users, Search, GraduationCap, Award, Filter, FileText, CheckCircle2, Al
 import type { StudentProfile } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_STUDENT_PROFILES } from "@/lib/mock-data";
 
 export default function UniversityStudentsPage() {
   const [students, setStudents] = useState<StudentProfile[]>([]);
@@ -19,6 +20,11 @@ export default function UniversityStudentsPage() {
 
   useEffect(() => {
     setLoading(true);
+    if (isDemoMode()) {
+      setStudents(MOCK_STUDENT_PROFILES);
+      setLoading(false);
+      return;
+    }
     studentsApi.list()
       .then(res => {
         setStudents(res.data || []);

@@ -6,6 +6,7 @@ import { ClipboardList, Loader2 } from "lucide-react";
 import type { Application } from "@/lib/types";
 import { getStatusColor, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { isDemoMode, MOCK_APPLICATIONS } from "@/lib/mock-data";
 
 const STATUS_ORDER = ["submitted","reviewed","shortlisted","interviewed","offered","accepted","rejected","withdrawn"];
 
@@ -15,6 +16,11 @@ export default function ApplicationsPage() {
   const [filter, setFilter] = useState("all");
 
   useEffect(() => {
+    if (isDemoMode()) {
+      setApps(MOCK_APPLICATIONS);
+      setLoading(false);
+      return;
+    }
     applicationsApi.myApplications()
       .then(r => setApps(r.data))
       .catch(() => {})

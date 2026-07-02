@@ -6,6 +6,7 @@ import { BarChart3, TrendingUp, Users, CalendarDays, Loader2, RefreshCw, Award, 
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
+import { isDemoMode, MOCK_UNIVERSITY_ANALYTICS } from "@/lib/mock-data";
 
 // Dynamically import Recharts to avoid SSR hydration mismatches in Next.js
 const BarChart = dynamic(() => import("recharts").then(mod => mod.BarChart), { ssr: false });
@@ -28,6 +29,11 @@ export default function UniversityAnalyticsPage() {
 
   const fetchAnalytics = async () => {
     setLoading(true);
+    if (isDemoMode()) {
+      setAnalytics(MOCK_UNIVERSITY_ANALYTICS);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await universitiesApi.getAnalytics();
       setAnalytics(res.data || null);

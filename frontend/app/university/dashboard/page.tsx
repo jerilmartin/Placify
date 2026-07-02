@@ -7,6 +7,7 @@ import Link from "next/link";
 import { formatDate, formatPackage, getStatusColor } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { PlacementDrive } from "@/lib/types";
+import { isDemoMode, MOCK_PLACEMENT_DRIVES, MOCK_UNIVERSITY_ANALYTICS } from "@/lib/mock-data";
 
 export default function UniversityDashboard() {
   const [drives, setDrives] = useState<PlacementDrive[]>([]);
@@ -14,6 +15,12 @@ export default function UniversityDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isDemoMode()) {
+      setDrives(MOCK_PLACEMENT_DRIVES);
+      setAnalytics(MOCK_UNIVERSITY_ANALYTICS);
+      setLoading(false);
+      return;
+    }
     Promise.allSettled([universitiesApi.listDrives(), universitiesApi.getAnalytics()])
       .then(([d, a]) => {
         if (d.status === "fulfilled") setDrives(d.value.data);
