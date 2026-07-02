@@ -1,3 +1,4 @@
+"use client";
 
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -138,3 +139,4 @@ export default function UniversityPage() {
     </div>
   );
 }
+

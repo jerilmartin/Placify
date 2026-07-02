@@ -14,9 +14,6 @@ import {
 import { BrandLockup } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 
-,
-  component: Landing,
-});
 
 export default function Landing() {
   return (

@@ -1,5 +1,6 @@
+"use client";
 
-import { MapPin, Mail, Phone, Github, Linkedin, Globe, Pencil, GraduationCap, Award, Sparkles } from "lucide-react";
+import { MapPin, Mail, Phone, Link, Globe, Pencil, GraduationCap, Award, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 
@@ -41,8 +42,8 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm"><Github className="mr-1.5 h-3.5 w-3.5" /> GitHub</Button>
-            <Button variant="outline" size="sm"><Linkedin className="mr-1.5 h-3.5 w-3.5" /> LinkedIn</Button>
+            <Button variant="outline" size="sm"><Link className="mr-1.5 h-3.5 w-3.5" /> GitHub</Button>
+            <Button variant="outline" size="sm"><Link className="mr-1.5 h-3.5 w-3.5" /> LinkedIn</Button>
             <Button variant="outline" size="sm"><Globe className="mr-1.5 h-3.5 w-3.5" /> Portfolio</Button>
             <Button size="sm"><Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit profile</Button>
           </div>
@@ -127,3 +128,4 @@ export default function ProfilePage() {
     </div>
   );
 }
+

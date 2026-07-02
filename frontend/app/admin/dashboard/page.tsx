@@ -1,3 +1,4 @@
+"use client";
 
 import { Activity, CreditCard, Database, Key, ShieldCheck, Users } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
@@ -144,3 +145,4 @@ export default function AdminPage() {
     </div>
   );
 }
+

@@ -1,3 +1,4 @@
+"use client";
 
 import { motion } from "framer-motion";
 import { UploadCloud, FileText, Sparkles, Download, Share2, Check, AlertCircle } from "lucide-react";
@@ -150,3 +151,4 @@ export default function ResumePage() {
     </div>
   );
 }
+

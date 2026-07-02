@@ -1,3 +1,4 @@
+"use client";
 
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowUp, Sparkles, Paperclip, Mic } from "lucide-react";
@@ -146,3 +147,4 @@ export default function CareerPage() {
     </div>
   );
 }
+

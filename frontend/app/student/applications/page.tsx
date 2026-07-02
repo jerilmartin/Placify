@@ -1,3 +1,4 @@
+"use client";
 
 import { motion } from "framer-motion";
 import { CheckCircle2, Circle, Clock } from "lucide-react";
@@ -112,3 +113,4 @@ export default function ApplicationsPage() {
     </div>
   );
 }
+
