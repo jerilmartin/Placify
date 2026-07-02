@@ -1,180 +1,157 @@
-"use client";
 
-import { useState, useEffect } from "react";
-import { jobsApi, applicationsApi } from "@/lib/api";
-import { toast } from "sonner";
-import { Briefcase, MapPin, Clock, TrendingUp, CheckCircle, Loader2, Search, Filter } from "lucide-react";
-import type { JobMatch, Job } from "@/lib/types";
-import { cn, formatPackage, getMatchScoreColor } from "@/lib/utils";
-import { isDemoMode, MOCK_JOB_MATCHES, MOCK_JOBS } from "@/lib/mock-data";
+import { motion } from "framer-motion";
+import { Search, SlidersHorizontal, Bookmark, MapPin, Building2, Filter, ArrowUpRight, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { matchedJobs } from "@/lib/mock";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 
-function JobCard({ match, onApply }: { match: JobMatch; onApply: (jobId: string) => void }) {
-  const job = match.job;
-  return (
-    <div className="glass p-5 card-hover border border-white/5 hover:border-white/10">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
-          <h3 className="font-semibold text-white">{job.title}</h3>
-          <p className="text-sm text-slate-400">{job.company}</p>
-        </div>
-        <div className="text-right flex-shrink-0">
-          <div className={cn("text-2xl font-extrabold", getMatchScoreColor(match.match_score))}>
-            {match.match_score}%
-          </div>
-          <div className="text-xs text-slate-500">match</div>
-        </div>
-      </div>
 
-      <div className="flex flex-wrap gap-2 text-xs text-slate-400 mb-3">
-        {job.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{job.location}</span>}
-        {job.package_lpa && <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3" />{formatPackage(job.package_lpa)}</span>}
-        {job.job_type && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{job.job_type.replace("_", " ")}</span>}
-      </div>
 
-      {/* Match bar */}
-      <div className="mb-3">
-        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-700"
-            style={{
-              width: `${match.match_score}%`,
-              background: match.match_score >= 80 ? "linear-gradient(to right, #10b981, #34d399)"
-                : match.match_score >= 60 ? "linear-gradient(to right, #3b82f6, #60a5fa)"
-                : "linear-gradient(to right, #f59e0b, #fbbf24)"
-            }} />
-        </div>
-      </div>
-
-      {/* Skills */}
-      {match.skill_matches.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {match.skill_matches.slice(0, 4).map(s => (
-            <span key={s} className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 text-xs border border-emerald-500/20 flex items-center gap-1">
-              <CheckCircle className="w-2.5 h-2.5" />{s}
-            </span>
-          ))}
-          {match.missing_skills.slice(0, 2).map(s => (
-            <span key={s} className="px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 text-xs border border-red-500/15">
-              -{s}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <button onClick={() => onApply(job.id)}
-        className="w-full py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 text-white text-sm font-medium hover:opacity-90 transition-all">
-        Apply Now
-      </button>
-    </div>
-  );
-}
+const allJobs = [
+  ...matchedJobs,
+  { id: "j6", company: "Juspay", role: "Payments SDK Engineer", location: "Bengaluru · Hybrid", package: "₹28 LPA", match: 85, logo: "J", tint: "oklch(0.72 0.14 235)" },
+  { id: "j7", company: "PhonePe", role: "Software Engineer II", location: "Bengaluru · Onsite", package: "₹32 LPA", match: 84, logo: "P", tint: "oklch(0.68 0.20 340)" },
+  { id: "j8", company: "Freshworks", role: "Full-Stack Engineer", location: "Chennai · Hybrid", package: "₹24 LPA", match: 78, logo: "F", tint: "oklch(0.80 0.16 75)" },
+  { id: "j9", company: "Postman", role: "Frontend Engineer", location: "Remote, India", package: "₹30 LPA", match: 82, logo: "P", tint: "oklch(0.72 0.17 155)" },
+];
 
 export default function JobsPage() {
-  const [matches, setMatches] = useState<JobMatch[]>([]);
-  const [allJobs, setAllJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"matches" | "all">("matches");
-  const [search, setSearch] = useState("");
-  const [applying, setApplying] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isDemoMode()) {
-      setMatches(MOCK_JOB_MATCHES);
-      setAllJobs(MOCK_JOBS);
-      setLoading(false);
-      return;
-    }
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [mRes, jRes] = await Promise.allSettled([jobsApi.getMatches(), jobsApi.list()]);
-        if (mRes.status === "fulfilled") setMatches(mRes.value.data);
-        if (jRes.status === "fulfilled") setAllJobs(jRes.value.data);
-      } catch {} finally { setLoading(false); }
-    };
-    fetchData();
-  }, []);
-
-  const handleApply = async (jobId: string) => {
-    setApplying(jobId);
-    if (isDemoMode()) {
-      await new Promise(r => setTimeout(r, 800));
-      toast.success("Applied successfully! 🎉");
-      setApplying(null);
-      return;
-    }
-    try {
-      await applicationsApi.apply(jobId);
-      toast.success("Applied successfully! 🎉");
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Application failed";
-      toast.error(msg);
-    } finally { setApplying(null); }
-  };
-
-  const filteredMatches = matches.filter(m =>
-    !search || m.job.title.toLowerCase().includes(search.toLowerCase()) ||
-    m.job.company.toLowerCase().includes(search.toLowerCase())
-  );
-
+  const [salary, setSalary] = useState([30]);
+  const [saved, setSaved] = useState<string[]>([]);
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="mb-6">
-        <div className="flex items-center gap-2 text-sm text-slate-500 mb-1"><Briefcase className="w-4 h-4" /> Jobs</div>
-        <h1 className="text-2xl font-bold text-white">Job Matches</h1>
-        <p className="text-slate-500 text-sm mt-1">AI-powered job recommendations based on your profile.</p>
-      </div>
-
-      {/* Tabs + Search */}
-      <div className="flex items-center gap-4 mb-6 flex-wrap">
-        <div className="flex rounded-lg border border-white/10 p-0.5">
-          {(["matches", "all"] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={cn("px-4 py-1.5 rounded-md text-sm font-medium transition-all capitalize",
-                tab === t ? "bg-purple-600 text-white" : "text-slate-400 hover:text-white")}>
-              {t === "matches" ? "🎯 AI Matches" : "💼 All Jobs"}
-            </button>
-          ))}
+    <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
+      <div className="mb-6 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Jobs</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {allJobs.length} openings · sorted by AI match
+          </p>
         </div>
-        <div className="flex-1 relative min-w-40">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search jobs…"
-            className="w-full pl-9 pr-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm"><Bookmark className="mr-1.5 h-3.5 w-3.5" /> Saved</Button>
+          <Button size="sm"><Sparkles className="mr-1.5 h-3.5 w-3.5" /> Improve matches</Button>
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center h-40"><Loader2 className="w-6 h-6 text-purple-400 animate-spin" /></div>
-      ) : tab === "matches" ? (
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredMatches.length === 0
-            ? <div className="col-span-3 text-center py-12 text-slate-500">No matches yet. Complete your profile to get personalized recommendations!</div>
-            : filteredMatches.map(m => <JobCard key={m.id} match={m} onApply={handleApply} />)
-          }
+      {/* Search bar */}
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-2">
+        <div className="flex flex-1 items-center gap-2 px-2">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search roles, companies, skills…"
+            className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+          />
         </div>
-      ) : (
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {allJobs.filter(j => !search || j.title.toLowerCase().includes(search.toLowerCase()) || j.company.toLowerCase().includes(search.toLowerCase()))
-            .map(job => (
-              <div key={job.id} className="glass p-5 card-hover border border-white/5">
-                <h3 className="font-semibold text-white">{job.title}</h3>
-                <p className="text-sm text-slate-400 mb-2">{job.company}</p>
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {job.skills_required.slice(0, 4).map(s => (
-                    <span key={s} className="px-2 py-0.5 rounded-full bg-white/5 text-slate-400 text-xs border border-white/10">{s}</span>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-emerald-400 font-medium">{formatPackage(job.package_lpa)}</span>
-                  <button onClick={() => handleApply(job.id)} disabled={applying === job.id}
-                    className="px-3 py-1.5 rounded-lg bg-purple-600/20 text-purple-300 text-xs font-medium border border-purple-500/20 hover:bg-purple-600/30 transition-all disabled:opacity-60">
-                    {applying === job.id ? <Loader2 className="w-3 h-3 animate-spin inline" /> : "Apply"}
-                  </button>
-                </div>
+        <Button variant="outline" size="sm"><MapPin className="mr-1.5 h-3.5 w-3.5" /> Location</Button>
+        <Button variant="outline" size="sm"><Building2 className="mr-1.5 h-3.5 w-3.5" /> Company</Button>
+        <Button variant="outline" size="sm"><Filter className="mr-1.5 h-3.5 w-3.5" /> Role</Button>
+        <Button variant="outline" size="sm"><SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" /> More</Button>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+        {/* Filters */}
+        <aside className="hidden lg:block">
+          <div className="sticky top-[76px] space-y-5 rounded-xl border border-border bg-surface p-5">
+            <div>
+              <h4 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted-foreground">Work mode</h4>
+              <div className="space-y-2">
+                {["Remote", "Hybrid", "Onsite"].map((m) => (
+                  <label key={m} className="flex items-center gap-2 text-[13px]">
+                    <Checkbox defaultChecked={m !== "Onsite"} /> {m}
+                  </label>
+                ))}
               </div>
-            ))
-          }
+            </div>
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <h4 className="text-[12px] font-medium uppercase tracking-wider text-muted-foreground">Package (LPA)</h4>
+                <span className="tabular-nums text-[12px] text-muted-foreground">₹{salary[0]}+</span>
+              </div>
+              <Slider value={salary} onValueChange={setSalary} min={5} max={100} step={5} />
+            </div>
+            <div>
+              <h4 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted-foreground">Experience</h4>
+              <div className="space-y-2">
+                {["Freshers", "1–2 years", "2–4 years"].map((e) => (
+                  <label key={e} className="flex items-center gap-2 text-[13px]">
+                    <Checkbox defaultChecked={e === "Freshers"} /> {e}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted-foreground">AI match</h4>
+              <div className="flex flex-wrap gap-1.5">
+                {["80+", "85+", "90+", "95+"].map((v) => (
+                  <Badge key={v} variant="outline" className="cursor-pointer hover:border-primary/60">
+                    {v}%
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* Results */}
+        <div className="space-y-3">
+          {allJobs.map((j, i) => {
+            const isSaved = saved.includes(j.id);
+            return (
+              <motion.article
+                key={j.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, delay: i * 0.02 }}
+                className="group rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary/30"
+              >
+                <div className="flex items-start gap-4">
+                  <div
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-base font-semibold text-white"
+                    style={{ background: `linear-gradient(135deg, ${j.tint}, oklch(0.35 0.05 270))` }}
+                  >
+                    {j.logo}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-[15px] font-medium">{j.role}</h3>
+                      <span className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[10.5px] font-medium text-primary">
+                        {j.match}% match
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[13px] text-muted-foreground">
+                      {j.company} · {j.location}
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+                      <span className="rounded-md bg-elevated px-1.5 py-0.5">{j.package}</span>
+                      <span className="rounded-md bg-elevated px-1.5 py-0.5">Full-time</span>
+                      <span className="rounded-md bg-elevated px-1.5 py-0.5">React · TypeScript · Postgres</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() =>
+                        setSaved((prev) => (prev.includes(j.id) ? prev.filter((x) => x !== j.id) : [...prev, j.id]))
+                      }
+                      aria-label={isSaved ? "Unsave" : "Save"}
+                    >
+                      <Bookmark className={isSaved ? "h-4 w-4 fill-primary text-primary" : "h-4 w-4"} />
+                    </Button>
+                    <Button size="sm">
+                      Quick apply <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </motion.article>
+            );
+          })}
         </div>
-      )}
+      </div>
     </div>
   );
 }

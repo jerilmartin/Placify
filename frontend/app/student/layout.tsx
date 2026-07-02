@@ -1,28 +1,18 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, FileText, Briefcase, ClipboardList, MessageSquare, BookOpen, Bell, User, LogOut, Zap, Menu, X } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-const navItems = [
-  { href: "/student/dashboard",     label: "Dashboard",     icon: LayoutDashboard },
-  { href: "/student/resume",        label: "Resume",        icon: FileText },
-  { href: "/student/jobs",          label: "Jobs",          icon: Briefcase },
-  { href: "/student/applications",  label: "Applications",  icon: ClipboardList },
-  { href: "/student/interview",     label: "AI Interview",  icon: MessageSquare },
-  { href: "/student/career",        label: "Career AI",     icon: BookOpen },
-  { href: "/student/notifications", label: "Notifications", icon: Bell },
-  { href: "/student/profile",       label: "Profile",       icon: User },
-];
+import { useRouter } from "next/navigation";
+import { AppSidebar, type PortalRole } from "@/components/app-sidebar";
+import { Topbar } from "@/components/topbar";
+import { CommandMenu } from "@/components/command-menu";
 
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
   const router = useRouter();
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const role: PortalRole = "student";
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace("/login");
@@ -31,47 +21,31 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
     }
   }, [isLoading, isAuthenticated, user, router]);
 
-  // Close sidebar on route change
-  useEffect(() => { setSidebarOpen(false); }, [pathname]);
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
-  if (isLoading) return <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" /></div>;
+  if (!isAuthenticated || user?.role !== "student") return null;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex">
-      {/* Mobile menu button */}
-      <button onClick={() => setSidebarOpen(!sidebarOpen)} className="mobile-menu-btn" aria-label="Toggle menu">
-        {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-      </button>
-
-      {/* Backdrop */}
-      <div className={cn("sidebar-backdrop", sidebarOpen && "open")} onClick={() => setSidebarOpen(false)} />
-
-      {/* Sidebar */}
-      <aside className={cn("w-60 fixed top-0 left-0 bottom-0 glass border-r border-white/5 flex flex-col z-40 portal-sidebar", sidebarOpen && "open")}>
-        <div className="p-5 border-b border-white/5">
-          <Link href="/student/dashboard" className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center"><Zap className="w-3.5 h-3.5 text-white" /></div>
-            <span className="font-bold gradient-text">Placify</span>
-          </Link>
-        </div>
-        <div className="p-4 border-b border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-xs font-bold text-white">{user?.full_name?.charAt(0) ?? "S"}</div>
-            <div><div className="text-sm font-medium text-white truncate">{user?.full_name ?? "Student"}</div><div className="text-xs text-slate-500">Student</div></div>
-          </div>
-        </div>
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {navItems.map(item => (
-            <Link key={item.href} href={item.href} className={cn("sidebar-link", pathname.startsWith(item.href) && "active")}>
-              <item.icon className="w-4 h-4 flex-shrink-0" />{item.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="p-3 border-t border-white/5">
-          <button onClick={() => logout()} className="sidebar-link w-full text-left text-red-400 hover:text-red-300 hover:bg-red-500/10"><LogOut className="w-4 h-4" /> Sign Out</button>
-        </div>
-      </aside>
-      <main className="flex-1 ml-60 min-h-screen portal-main">{children}</main>
+    <div className="flex min-h-screen bg-background text-foreground">
+      <AppSidebar
+        role={role}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((v) => !v)}
+        onOpenCommand={() => setCmdOpen(true)}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Topbar onOpenCommand={() => setCmdOpen(true)} />
+        <main className="flex-1">
+          {children}
+        </main>
+      </div>
+      <CommandMenu role={role} open={cmdOpen} onOpenChange={setCmdOpen} />
     </div>
   );
 }
