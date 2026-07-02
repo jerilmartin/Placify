@@ -1,26 +1,54 @@
+"use client";
+
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowRight, GraduationCap, Users, Building2, ShieldCheck, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, GraduationCap, Users, Building2, ShieldCheck, Sparkles, Video } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { BrandLockup } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
-,
-component: Login,
-});
-
-const portals: { key: string; label: string; icon: typeof GraduationCap; to: string }[] = [
-  { key: "student", label: "Student", icon: GraduationCap, to: "/app" },
-  { key: "recruiter", label: "Recruiter", icon: Users, to: "/app/recruiter" },
-  { key: "officer", label: "Placement Officer", icon: Building2, to: "/app/university" },
-  { key: "admin", label: "Platform Admin", icon: ShieldCheck, to: "/app/admin" },
+const portals = [
+  { key: "student", label: "Student", icon: GraduationCap, email: "student@placify.com" },
+  { key: "recruiter", label: "Recruiter", icon: Users, email: "recruiter@placify.com" },
+  { key: "university", label: "Placement Officer", icon: Building2, email: "university@placify.com" },
+  { key: "mentor", label: "Mentor", icon: Video, email: "mentor@placify.com" },
 ];
 
 export default function Login() {
   const [role, setRole] = useState("student");
-  const navigate = useNavigate();
+  const [email, setEmail] = useState("student@placify.com");
+  const [password, setPassword] = useState("demo1234");
+  const router = useRouter();
+  const { login, isAuthenticated, user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      if (user.role === "student") router.replace("/student/dashboard");
+      else if (user.role === "recruiter") router.replace("/recruiter/dashboard");
+      else if (user.role === "university" || user.role === "placement_officer") router.replace("/university/dashboard");
+      else if (user.role === "mentor") router.replace("/mentor/dashboard");
+    }
+  }, [isAuthenticated, user, router]);
+
+  const handleRoleSelect = (key: string, defaultEmail: string) => {
+    setRole(key);
+    setEmail(defaultEmail);
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await login(email, password);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to login");
+    }
+  };
+
   return (
     <div className="grid min-h-screen grid-cols-1 bg-background text-foreground lg:grid-cols-[1.05fr_1fr]">
       {/* Form */}
@@ -44,9 +72,11 @@ export default function Login() {
                 return (
                   <button
                     key={p.key}
-                    onClick={() => setRole(p.key)}
-                    className={`group flex flex-col items-center gap-1 rounded-md px-1.5 py-2 text-[11px] transition-colors ${active ? "bg-elevated text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
+                    onClick={() => handleRoleSelect(p.key, p.email)}
+                    type="button"
+                    className={`group flex flex-col items-center gap-1 rounded-md px-1.5 py-2 text-[11px] transition-colors ${
+                      active ? "bg-elevated text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    }`}
                     aria-label={p.label}
                     title={p.label}
                   >
@@ -57,17 +87,16 @@ export default function Login() {
               })}
             </div>
 
-            <form
-              className="mt-6 space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const dest = portals.find((p) => p.key === role)?.to ?? "/app";
-                navigate({ to: dest });
-              }}
-            >
+            <form className="mt-6 space-y-4" onSubmit={handleLogin}>
               <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="you@iitb.ac.in" defaultValue="aarav.s@iitb.ac.in" />
+                <Input 
+                  id="email" 
+                  type="email" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@iitb.ac.in" 
+                />
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -76,10 +105,16 @@ export default function Login() {
                     Forgot?
                   </a>
                 </div>
-                <Input id="password" type="password" placeholder="••••••••" defaultValue="demo1234" />
+                <Input 
+                  id="password" 
+                  type="password" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••" 
+                />
               </div>
-              <Button type="submit" className="w-full">
-                Continue <ArrowRight className="ml-1.5 h-4 w-4" />
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? "Signing in..." : <>Continue <ArrowRight className="ml-1.5 h-4 w-4" /></>}
               </Button>
             </form>
 
@@ -87,12 +122,12 @@ export default function Login() {
               <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline">SSO · Google</Button>
-              <Button variant="outline">SSO · Microsoft</Button>
+              <Button variant="outline" type="button">SSO · Google</Button>
+              <Button variant="outline" type="button">SSO · Microsoft</Button>
             </div>
 
             <p className="mt-6 text-center text-[12px] text-muted-foreground">
-              Demo access: any credentials will open the student workspace.
+              Demo access: use the role tabs above to automatically fill the demo credentials for each portal.
             </p>
           </motion.div>
         </div>
