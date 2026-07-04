@@ -1,187 +1,154 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { resumesApi } from "@/lib/api";
-import { toast } from "sonner";
-import { Upload, FileText, Sparkles, CheckCircle, Loader2, BarChart3, TrendingUp, AlertCircle } from "lucide-react";
-import type { Resume } from "@/lib/types";
+import { motion } from "framer-motion";
+import { UploadCloud, FileText, Sparkles, Download, Share2, Check, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+
+
+
+const suggestions = [
+  { level: "warn", t: "Quantify impact in the Stripe internship bullet — add throughput or dollar impact." },
+  { level: "warn", t: "Missing a 'System Design' section — 4 target roles require it." },
+  { level: "ok", t: "Great use of active verbs across your last 6 bullet points." },
+  { level: "ok", t: "Keywords align well with 12/14 shortlisted roles." },
+];
+
+const versions = [
+  { name: "aarav_resume_v4.pdf", when: "Today · 10:22", ats: 88, active: true },
+  { name: "aarav_resume_v3.pdf", when: "Nov 1 · 18:11", ats: 77 },
+  { name: "aarav_resume_v2.pdf", when: "Oct 25 · 09:04", ats: 71 },
+];
 
 export default function ResumePage() {
-  const [resumes, setResumes] = useState<Resume[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [improving, setImproving] = useState(false);
-  const [selectedResume, setSelectedResume] = useState<Resume | null>(null);
-  const [atsResult, setAtsResult] = useState<Record<string, unknown> | null>(null);
-  const [improveResult, setImproveResult] = useState<Record<string, unknown> | null>(null);
-  const [drag, setDrag] = useState(false);
-
-  useEffect(() => {
-    resumesApi.list().then(r => setResumes(r.data)).catch(() => {});
-  }, []);
-
-  const handleUpload = async (file: File) => {
-    setUploading(true);
-    try {
-      const res = await resumesApi.upload(file);
-      toast.success("Resume uploaded and parsed!");
-      const newResume = { id: res.data.resume_id, original_filename: file.name, status: "parsed", completion_percentage: 60, student_id: "", created_at: new Date().toISOString() } as Resume;
-      setResumes(prev => [newResume, ...prev]);
-      setSelectedResume(newResume);
-    } catch (e: unknown) {
-      toast.error((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Upload failed");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleImprove = async () => {
-    if (!selectedResume) return;
-    setImproving(true);
-    try {
-      const res = await resumesApi.improve(selectedResume.id);
-      setImproveResult(res.data);
-      toast.success("AI improvement suggestions ready!");
-    } catch { toast.error("Failed to generate suggestions"); }
-    finally { setImproving(false); }
-  };
-
-  const handleAtsScore = async () => {
-    if (!selectedResume) return;
-    try {
-      const res = await resumesApi.getAtsScore(selectedResume.id);
-      setAtsResult(res.data);
-    } catch { toast.error("Failed to calculate ATS score"); }
-  };
-
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-8">
-        <div className="flex items-center gap-2 text-sm text-slate-500 mb-1"><FileText className="w-4 h-4" /> Resume</div>
-        <h1 className="text-2xl font-bold text-white">Resume Manager</h1>
-        <p className="text-slate-500 text-sm mt-1">Upload, parse, and improve your resume with Gemini AI.</p>
+    <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
+      <div className="mb-6 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Resume</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Parse, score, and rewrite with AI.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm"><Download className="mr-1.5 h-3.5 w-3.5" /> Download</Button>
+          <Button variant="outline" size="sm"><Share2 className="mr-1.5 h-3.5 w-3.5" /> Share</Button>
+          <Button size="sm"><Sparkles className="mr-1.5 h-3.5 w-3.5" /> Improve with AI</Button>
+        </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Upload Zone */}
-        <div>
-          <div
-            onDragOver={e => { e.preventDefault(); setDrag(true); }}
-            onDragLeave={() => setDrag(false)}
-            onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) handleUpload(f); }}
-            className={`glass p-8 rounded-2xl border-2 border-dashed text-center cursor-pointer transition-all ${
-              drag ? "border-purple-500 bg-purple-500/10" : "border-white/10 hover:border-purple-500/40"
-            }`}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Preview + upload */}
+        <div className="lg:col-span-2 space-y-4">
+          <motion.label
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface p-10 text-center transition-colors hover:border-primary/50 hover:bg-elevated"
           >
-            <input type="file" accept=".pdf,.doc,.docx" className="hidden" id="resume-upload"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
-            <label htmlFor="resume-upload" className="cursor-pointer">
-              <div className="w-14 h-14 rounded-2xl bg-purple-500/20 flex items-center justify-center mx-auto mb-4">
-                {uploading ? <Loader2 className="w-6 h-6 text-purple-400 animate-spin" /> : <Upload className="w-6 h-6 text-purple-400" />}
-              </div>
-              <div className="font-medium text-white mb-1">{uploading ? "Parsing with AI…" : "Drop your resume here"}</div>
-              <div className="text-xs text-slate-500">PDF, DOC, DOCX · Max 10MB</div>
-              <div className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600/20 text-purple-300 text-sm border border-purple-500/20 hover:bg-purple-600/30 transition-colors">
-                <Upload className="w-3.5 h-3.5" /> Browse file
-              </div>
-            </label>
-          </div>
-
-          {/* Resume list */}
-          {resumes.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <div className="text-xs font-medium text-slate-500 mb-2">Your resumes</div>
-              {resumes.map(r => (
-                <button key={r.id} onClick={() => setSelectedResume(r)}
-                  className={`w-full glass p-3 rounded-xl flex items-center gap-3 text-left transition-all border ${
-                    selectedResume?.id === r.id ? "border-purple-500/40 bg-purple-500/5" : "border-white/5 hover:border-white/15"
-                  }`}>
-                  <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
-                    <FileText className="w-4 h-4 text-purple-400" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-white truncate">{r.original_filename}</div>
-                    <div className="text-xs text-slate-500 capitalize">{r.status}</div>
-                  </div>
-                  {r.status === "parsed" && <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />}
-                </button>
-              ))}
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <UploadCloud className="h-5 w-5" />
             </div>
-          )}
-        </div>
+            <div className="mt-3 text-[14px] font-medium">Drop a new version to reparse</div>
+            <div className="mt-1 text-[12px] text-muted-foreground">PDF · DOCX · up to 4 MB</div>
+            <input type="file" className="hidden" />
+          </motion.label>
 
-        {/* Actions + Results */}
-        <div className="space-y-4">
-          {selectedResume && (
-            <div className="glass p-5 rounded-2xl">
-              <div className="text-sm font-medium text-white mb-4 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-400" /> AI Actions
+          <div className="rounded-xl border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                <span className="text-[14px] font-medium">aarav_resume_v4.pdf</span>
+                <span className="rounded-md bg-success/12 px-1.5 py-0.5 text-[10.5px] font-medium text-success">Active</span>
               </div>
-              <div className="space-y-2">
-                <button onClick={handleAtsScore}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/15 text-blue-300 text-sm font-medium transition-all">
-                  <BarChart3 className="w-4 h-4" /> Calculate ATS Score
-                </button>
-                <button onClick={handleImprove} disabled={improving}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/15 text-purple-300 text-sm font-medium transition-all disabled:opacity-60">
-                  {improving ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
-                  AI Improve Resume
-                </button>
-              </div>
+              <div className="text-[12px] text-muted-foreground">Parsed 4s ago</div>
             </div>
-          )}
-
-          {/* ATS Result */}
-          {atsResult && (
-            <div className="glass p-5 rounded-2xl animate-fade-up">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-white">ATS Score</span>
-                <span className="text-2xl font-bold gradient-text">{String(atsResult.ats_score ?? 0)}</span>
-              </div>
-              <div className="h-2 bg-white/5 rounded-full overflow-hidden mb-3">
-                <div className="h-full rounded-full bg-gradient-to-r from-purple-600 to-blue-500"
-                  style={{ width: `${atsResult.ats_score as number}%` }} />
-              </div>
-              {Array.isArray(atsResult.issues) && atsResult.issues.length > 0 && (
-                <div className="space-y-1.5">
-                  {(atsResult.issues as string[]).map((issue, i) => (
-                    <div key={i} className="flex items-start gap-2 text-xs text-slate-400">
-                      <AlertCircle className="w-3 h-3 text-amber-400 mt-0.5 flex-shrink-0" />{issue}
+            <div className="grid grid-cols-1 gap-0 md:grid-cols-[1fr_240px]">
+              {/* Fake preview */}
+              <div className="p-6">
+                <div className="rounded-lg border border-border bg-background p-6 shadow-inner">
+                  <div className="mb-4">
+                    <div className="text-lg font-semibold">Aarav Sharma</div>
+                    <div className="text-[12px] text-muted-foreground">B.Tech CSE · IIT Bombay · aarav.s@iitb.ac.in</div>
+                  </div>
+                  {[
+                    { h: "Experience", lines: ["Stripe · SWE Intern · Summer 2025", "Built payments retry pipeline handling 12M req/day…"] },
+                    { h: "Projects", lines: ["Distributed cache · Go, Raft consensus", "AI job matcher · Python, embeddings, pgvector"] },
+                    { h: "Education", lines: ["B.Tech CSE · CGPA 8.7 · 2022–2026"] },
+                  ].map((s) => (
+                    <div key={s.h} className="mb-4">
+                      <div className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">{s.h}</div>
+                      <div className="mt-1.5 space-y-1">
+                        {s.lines.map((l) => (
+                          <div key={l} className="h-2 rounded skeleton" style={{ width: `${60 + Math.random() * 40}%` }} />
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
-              )}
+              </div>
+              <div className="border-t border-border p-6 md:border-l md:border-t-0">
+                <div className="text-[11px] uppercase tracking-widest text-muted-foreground">ATS score</div>
+                <div className="mt-1 flex items-baseline gap-1">
+                  <span className="text-4xl font-semibold tabular-nums">88</span>
+                  <span className="text-sm text-muted-foreground">/100</span>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {[
+                    { l: "Keyword match", v: 92 },
+                    { l: "Structure", v: 84 },
+                    { l: "Readability", v: 90 },
+                    { l: "Impact metrics", v: 74 },
+                  ].map((m) => (
+                    <div key={m.l}>
+                      <div className="mb-1 flex justify-between text-[12px]"><span>{m.l}</span><span className="tabular-nums text-muted-foreground">{m.v}</span></div>
+                      <Progress value={m.v} className="h-1.5" />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
+          </div>
+        </div>
 
-          {/* Improve Result */}
-          {improveResult && (
-            <div className="glass p-5 rounded-2xl animate-fade-up">
-              <div className="text-sm font-medium text-white mb-3 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-400" /> Improvement Suggestions
-              </div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="text-3xl font-bold gradient-text">{String(improveResult.ats_score ?? 0)}</div>
-                <div className="text-xs text-slate-500">ATS Score<br /><span className="font-bold text-white">{String(improveResult.overall_grade)}</span></div>
-              </div>
-              {Array.isArray(improveResult.issues) && (improveResult.issues as string[]).map((issue, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs text-slate-400 mb-2">
-                  <span className="text-purple-400">→</span>{issue}
-                </div>
-              ))}
-              {Array.isArray(improveResult.keyword_suggestions) && (
-                <div className="mt-3">
-                  <div className="text-xs text-slate-500 mb-2">Add these keywords:</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(improveResult.keyword_suggestions as string[]).map(k => (
-                      <span key={k} className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs border border-blue-500/20">{k}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
+        {/* Right: suggestions + versions */}
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border bg-gradient-to-br from-primary/10 via-surface to-surface p-5">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+              <Sparkles className="h-3 w-3" /> AI suggestions
             </div>
-          )}
+            <ul className="mt-4 space-y-3">
+              {suggestions.map((s) => (
+                <li key={s.t} className="flex items-start gap-2.5 text-[13px]">
+                  {s.level === "warn" ? (
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                  ) : (
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                  )}
+                  <span>{s.t}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-xl border border-border bg-surface">
+            <div className="border-b border-border px-5 py-3">
+              <h3 className="text-[14px] font-medium">Version history</h3>
+            </div>
+            <ul className="divide-y divide-border">
+              {versions.map((v) => (
+                <li key={v.name} className="flex items-center justify-between px-5 py-3">
+                  <div>
+                    <div className="text-[13px]">{v.name}</div>
+                    <div className="text-[11px] text-muted-foreground">{v.when}</div>
+                  </div>
+                  <span className={v.active ? "rounded-md bg-primary/12 px-1.5 py-0.5 text-[11px] text-primary" : "text-[12px] text-muted-foreground tabular-nums"}>
+                    ATS {v.ats}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
     </div>
   );
 }
+

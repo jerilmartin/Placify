@@ -1,87 +1,116 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { applicationsApi } from "@/lib/api";
-import { ClipboardList, Loader2 } from "lucide-react";
-import type { Application } from "@/lib/types";
-import { getStatusColor, formatDate } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { CheckCircle2, Circle, Clock } from "lucide-react";
+import { applications, stages } from "@/lib/mock";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
-const STATUS_ORDER = ["submitted","reviewed","shortlisted","interviewed","offered","accepted","rejected","withdrawn"];
+
 
 export default function ApplicationsPage() {
-  const [apps, setApps] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
-
-  useEffect(() => {
-    applicationsApi.myApplications()
-      .then(r => setApps(r.data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const statCounts = apps.reduce<Record<string, number>>((acc, a) => {
-    acc[a.status] = (acc[a.status] || 0) + 1;
-    return acc;
-  }, {});
-
-  const filtered = filter === "all" ? apps : apps.filter(a => a.status === filter);
-
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-6">
-        <div className="flex items-center gap-2 text-sm text-slate-500 mb-1"><ClipboardList className="w-4 h-4" /> Applications</div>
-        <h1 className="text-2xl font-bold text-white">My Applications</h1>
-        <p className="text-slate-500 text-sm mt-1">Track every application from submission to offer.</p>
+    <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
+      <div className="mb-6 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Applications</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {applications.length} tracked · updated 2m ago
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm">Export CSV</Button>
+          <Button size="sm">New application</Button>
+        </div>
       </div>
 
-      {/* Status filter pills */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <button onClick={() => setFilter("all")}
-          className={cn("px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
-            filter === "all" ? "bg-purple-600 text-white border-transparent" : "border-white/10 text-slate-400 hover:text-white")}>
-          All ({apps.length})
-        </button>
-        {STATUS_ORDER.filter(s => statCounts[s]).map(s => (
-          <button key={s} onClick={() => setFilter(s)}
-            className={cn("px-3 py-1.5 rounded-full text-xs font-medium transition-all border capitalize",
-              filter === s ? "bg-purple-600 text-white border-transparent" : "border-white/10 text-slate-400 hover:text-white")}>
-            {s} ({statCounts[s]})
-          </button>
+      {/* Stage summary */}
+      <div className="mb-6 grid grid-cols-3 gap-2 md:grid-cols-6">
+        {stages.map((s, i) => {
+          const count = applications.filter((a) => a.stageIndex >= i && a.stageIndex <= i).length;
+          return (
+            <div key={s} className="rounded-lg border border-border bg-surface p-3">
+              <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">{s}</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums">{count}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Applications list */}
+      <div className="space-y-3">
+        {applications.map((a, ai) => (
+          <motion.div
+            key={a.id}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, delay: ai * 0.03 }}
+            className="rounded-xl border border-border bg-surface p-5"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[15px] font-medium">{a.role}</div>
+                <div className="mt-0.5 text-[13px] text-muted-foreground">{a.company} · Applied {a.date}</div>
+              </div>
+              <span
+                className={cn(
+                  "rounded-md px-2 py-0.5 text-[11px] font-medium",
+                  a.stage === "Offer"
+                    ? "bg-success/12 text-success"
+                    : a.stage === "Rejected"
+                      ? "bg-destructive/12 text-destructive"
+                      : "bg-primary/12 text-primary",
+                )}
+              >
+                {a.stage}
+              </span>
+            </div>
+
+            {/* Timeline */}
+            <div className="mt-5 flex items-center">
+              {stages.map((s, i) => {
+                const done = i < a.stageIndex;
+                const current = i === a.stageIndex;
+                return (
+                  <div key={s} className="flex flex-1 items-center">
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={cn(
+                          "flex h-6 w-6 items-center justify-center rounded-full border transition-colors",
+                          done
+                            ? "border-success bg-success/15 text-success"
+                            : current
+                              ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_oklch(0.68_0.19_285/0.15)]"
+                              : "border-border bg-surface text-muted-foreground",
+                        )}
+                      >
+                        {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : current ? <Clock className="h-3 w-3" /> : <Circle className="h-2.5 w-2.5" />}
+                      </div>
+                      <div
+                        className={cn(
+                          "mt-1.5 text-[10.5px] uppercase tracking-wider",
+                          done || current ? "text-foreground" : "text-muted-foreground",
+                        )}
+                      >
+                        {s}
+                      </div>
+                    </div>
+                    {i < stages.length - 1 && (
+                      <div className={cn("mx-1 h-px flex-1", i < a.stageIndex ? "bg-success/50" : "bg-border")} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between rounded-lg border border-border bg-background/50 px-3 py-2 text-[12.5px]">
+              <span className="text-muted-foreground">Recruiter note</span>
+              <span className="text-foreground">{a.note}</span>
+            </div>
+          </motion.div>
         ))}
       </div>
-
-      {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 text-purple-400 animate-spin" /></div>
-      ) : filtered.length === 0 ? (
-        <div className="glass p-12 text-center text-slate-500">
-          <ClipboardList className="w-8 h-8 mx-auto mb-3 text-slate-600" />
-          <p>No applications yet. Start applying to jobs!</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map(app => (
-            <div key={app.id} className="glass p-4 border border-white/5 hover:border-white/10 card-hover">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold text-white">{(app.jobs as { title?: string })?.title ?? "Position"}</h3>
-                  <p className="text-sm text-slate-400">{(app.jobs as { company?: string })?.company ?? "Company"}</p>
-                  <p className="text-xs text-slate-600 mt-1">Applied {formatDate(app.applied_at)}</p>
-                </div>
-                <span className={cn("px-3 py-1 rounded-full text-xs font-medium capitalize", getStatusColor(app.status))}>
-                  {app.status}
-                </span>
-              </div>
-              {app.next_step && (
-                <div className="mt-3 p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
-                  📅 Next: {app.next_step} {app.next_step_date && `· ${formatDate(app.next_step_date)}`}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
+

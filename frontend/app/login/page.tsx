@@ -1,120 +1,166 @@
 "use client";
 
+import Link from "next/link";
+import { motion } from "framer-motion";
+import { ArrowRight, GraduationCap, Users, Building2, ShieldCheck, Sparkles, Video } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { BrandLockup } from "@/components/brand";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Zap, Eye, EyeOff, Loader2 } from "lucide-react";
-import type { UserRole } from "@/lib/types";
 
-export default function LoginPage() {
-  const { login, isAuthenticated, user, isLoading } = useAuth();
+const portals = [
+  { key: "student", label: "Student", icon: GraduationCap, email: "student@placify.com" },
+  { key: "recruiter", label: "Recruiter", icon: Users, email: "recruiter@placify.com" },
+  { key: "university", label: "Placement Officer", icon: Building2, email: "university@placify.com" },
+  { key: "mentor", label: "Mentor", icon: Video, email: "mentor@placify.com" },
+];
+
+export default function Login() {
+  const [role, setRole] = useState("student");
+  const [email, setEmail] = useState("student@placify.com");
+  const [password, setPassword] = useState("demo1234");
   const router = useRouter();
+  const { login, isAuthenticated, user, isLoading } = useAuth();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  // Redirect if already authenticated
   useEffect(() => {
-    if (!isLoading && isAuthenticated && user) {
-      const roleRoutes: Record<UserRole, string> = {
-        student: "/student/dashboard",
-        recruiter: "/recruiter/dashboard",
-        university: "/university/dashboard",
-        mentor: "/mentor/dashboard",
-        admin: "/student/dashboard",
-        placement_officer: "/university/dashboard",
-      };
-      router.replace(roleRoutes[user.role] || "/student/dashboard");
+    if (isAuthenticated && user) {
+      if (user.role === "student") router.replace("/student/dashboard");
+      else if (user.role === "recruiter") router.replace("/recruiter/dashboard");
+      else if (user.role === "university" || user.role === "placement_officer") router.replace("/university/dashboard");
+      else if (user.role === "mentor") router.replace("/mentor/dashboard");
     }
-  }, [isAuthenticated, user, isLoading, router]);
+  }, [isAuthenticated, user, router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleRoleSelect = (key: string, defaultEmail: string) => {
+    setRole(key);
+    setEmail(defaultEmail);
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) { toast.error("Please fill in all fields"); return; }
-    setLoading(true);
     try {
       await login(email, password);
-      toast.success("Welcome back!");
-    } catch (err: unknown) {
-      const message = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Login failed";
-      toast.error(message);
-    } finally {
-      setLoading(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to login");
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background orbs */}
-      <div className="absolute top-0 left-1/3 w-96 h-96 rounded-full bg-purple-600/8 blur-3xl" />
-      <div className="absolute bottom-0 right-1/3 w-80 h-80 rounded-full bg-blue-600/8 blur-3xl" />
+    <div className="grid min-h-screen grid-cols-1 bg-background text-foreground lg:grid-cols-[1.05fr_1fr]">
+      {/* Form */}
+      <div className="flex flex-col p-6 md:p-10">
+        <Link href="/"><BrandLockup /></Link>
+        <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+          >
+            <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Welcome back</h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Sign in to your Placify workspace.
+            </p>
 
-      <div className="w-full max-w-md relative">
-        {/* Logo */}
-        <div className="text-center mb-8 animate-fade-up">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
+            <div className="mt-8 grid grid-cols-4 gap-1.5 rounded-lg border border-border bg-surface p-1">
+              {portals.map((p) => {
+                const Icon = p.icon;
+                const active = role === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    onClick={() => handleRoleSelect(p.key, p.email)}
+                    type="button"
+                    className={`group flex flex-col items-center gap-1 rounded-md px-1.5 py-2 text-[11px] transition-colors ${
+                      active ? "bg-elevated text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    aria-label={p.label}
+                    title={p.label}
+                  >
+                    <Icon className={`h-3.5 w-3.5 ${active ? "text-primary" : ""}`} />
+                    <span className="hidden truncate md:inline">{p.label.split(" ")[0]}</span>
+                  </button>
+                );
+              })}
             </div>
-            <span className="text-2xl font-bold gradient-text">Placify</span>
-          </Link>
-          <h1 className="text-xl font-semibold mt-6 text-white">Welcome back</h1>
-          <p className="text-sm text-slate-500 mt-1">Sign in to your portal</p>
-        </div>
 
-        {/* Card */}
-        <div className="glass p-8 animate-fade-up delay-100">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="student@university.edu"
-                className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-purple-500/50 focus:bg-white/8 transition-all"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">Password</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
+            <form className="mt-6 space-y-4" onSubmit={handleLogin}>
+              <div className="space-y-1.5">
+                <Label htmlFor="email">Email</Label>
+                <Input 
+                  id="email" 
+                  type="email" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@iitb.ac.in" 
+                />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <a href="#" className="text-[12px] text-muted-foreground hover:text-foreground">
+                    Forgot?
+                  </a>
+                </div>
+                <Input 
+                  id="password" 
+                  type="password" 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-4 py-2.5 pr-10 rounded-lg bg-white/5 border border-white/10 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-purple-500/50 transition-all"
-                  required
+                  placeholder="••••••••" 
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? "Signing in..." : <>Continue <ArrowRight className="ml-1.5 h-4 w-4" /></>}
+              </Button>
+            </form>
+
+            <div className="my-6 flex items-center gap-3 text-[11px] uppercase tracking-widest text-muted-foreground">
+              <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" type="button">SSO · Google</Button>
+              <Button variant="outline" type="button">SSO · Microsoft</Button>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover:opacity-90 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Signing in…</> : "Sign In"}
-            </button>
-          </form>
+            <p className="mt-6 text-center text-[12px] text-muted-foreground">
+              Demo access: use the role tabs above to automatically fill the demo credentials for each portal.
+            </p>
+          </motion.div>
+        </div>
+        <div className="text-[12px] text-muted-foreground">© 2026 Placify</div>
+      </div>
 
-          <div className="mt-6 text-center text-sm text-slate-500">
-            Don&apos;t have an account?{" "}
-            <Link href="/register" className="text-purple-400 hover:text-purple-300 font-medium transition-colors">
-              Create one
-            </Link>
+      {/* Right: brand panel */}
+      <div className="relative hidden overflow-hidden border-l border-border bg-surface lg:block">
+        <div className="aurora opacity-80" />
+        <div className="relative flex h-full flex-col justify-between p-10">
+          <div className="max-w-md">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background/40 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur">
+              <span className="h-1.5 w-1.5 rounded-full bg-success" /> Placement OS · v4.2
+            </div>
+            <h2 className="mt-6 text-3xl font-semibold tracking-[-0.02em] md:text-4xl">
+              Every offer letter starts with a great match.
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              Placify runs India's most active placement cells — one workspace for
+              students, recruiters, and campus leadership.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { k: "92%", l: "Placement rate" },
+              { k: "₹34L", l: "Avg. package" },
+              { k: "450+", l: "Recruiters" },
+            ].map((s) => (
+              <div key={s.l} className="rounded-lg border border-border bg-background/40 p-4 backdrop-blur">
+                <div className="text-2xl font-semibold tracking-tight">{s.k}</div>
+                <div className="mt-1 text-[11.5px] text-muted-foreground">{s.l}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

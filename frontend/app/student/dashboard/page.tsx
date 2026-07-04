@@ -1,199 +1,337 @@
 "use client";
-
-import { useEffect, useState } from "react";
-import { analyticsApi, aiApi } from "@/lib/api";
-import { useAuth } from "@/contexts/AuthContext";
-import { cn, formatPackage, getRiskColor, getStatusColor } from "@/lib/utils";
-import type { StudentDashboardStats, PlacementRisk, ProfileStrength } from "@/lib/types";
-import {
-  LayoutDashboard, Briefcase, ClipboardList, TrendingUp,
-  MessageSquare, ChevronRight, Zap, Target, Award, AlertTriangle
-} from "lucide-react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+  ArrowUpRight,
+  ArrowRight,
+  Sparkles,
+  Bot,
+  Calendar,
+  TrendingUp,
+  CheckCircle2,
+  Info,
+  AlertTriangle,
+  Plus,
+} from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  student,
+  kpis,
+  matchedJobs,
+  applications,
+  upcomingInterviews,
+  activity,
+  skillGaps,
+  applicationTrend,
+  performanceRadar,
+} from "@/lib/mock";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 
-function StatCard({ icon: Icon, label, value, sub, color }: {
-  icon: React.ElementType; label: string; value: string | number; sub?: string; color: string;
-}) {
+
+
+export default function Dashboard() {
   return (
-    <div className="glass p-5 card-hover">
-      <div className="flex items-start justify-between mb-3">
-        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</span>
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
-          <Icon className="w-4 h-4" />
-        </div>
-      </div>
-      <div className="text-3xl font-bold text-white">{value}</div>
-      {sub && <div className="text-xs text-slate-500 mt-1">{sub}</div>}
-    </div>
-  );
-}
-
-function ProfileStrengthCard({ data }: { data: ProfileStrength | null }) {
-  if (!data) return null;
-  return (
-    <div className="glass p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-white flex items-center gap-2">
-          <Award className="w-4 h-4 text-amber-400" /> Profile Strength
-        </h3>
-        <span className={`text-sm font-bold ${data.overall_score >= 80 ? "text-emerald-400" : data.overall_score >= 50 ? "text-amber-400" : "text-red-400"}`}>
-          {data.level}
-        </span>
-      </div>
-
-      {/* Overall progress */}
-      <div className="mb-5">
-        <div className="flex justify-between text-xs text-slate-400 mb-1.5">
-          <span>Overall</span>
-          <span>{data.overall_score}%</span>
-        </div>
-        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-purple-600 to-blue-500 transition-all duration-700"
-            style={{ width: `${data.overall_score}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Sections */}
-      <div className="space-y-2.5">
-        {data.sections.map((s) => (
-          <div key={s.section}>
-            <div className="flex justify-between text-xs text-slate-400 mb-1">
-              <span>{s.label}</span>
-              <span>{s.score}/{s.max_score}</span>
-            </div>
-            <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-500"
-                style={{ width: `${s.percentage}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {data.next_milestone && data.next_milestone.points_needed > 0 && (
-        <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-          <div className="text-xs text-amber-300 font-medium">{data.next_milestone.label}</div>
-          <div className="text-xs text-slate-400 mt-0.5">{data.next_milestone.tip}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RiskCard({ data }: { data: PlacementRisk | null }) {
-  if (!data) return null;
-  const color = getRiskColor(data.risk_level);
-  return (
-    <div className="glass p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Target className="w-4 h-4 text-purple-400" />
-        <h3 className="font-semibold text-white">Placement Probability</h3>
-      </div>
-      <div className="flex items-center gap-4 mb-5">
-        <div className="text-5xl font-extrabold gradient-text">{data.probability}%</div>
+    <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
+      {/* Welcome */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+        className="mb-6 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end"
+      >
         <div>
-          <div className={`text-sm font-bold ${color}`}>{data.risk_level} Risk</div>
-          <div className="text-xs text-slate-500 mt-0.5">AI Prediction</div>
-        </div>
-      </div>
-      {data.top_improvements.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3 text-amber-400" /> Improve to boost
+          <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
+            {new Date().toLocaleDateString("en-IN", { weekday: "long", month: "long", day: "numeric" })}
           </div>
-          {data.top_improvements.map((tip, i) => (
-            <div key={i} className="text-xs text-slate-400 flex items-start gap-2">
-              <span className="text-purple-400 mt-0.5">•</span>{tip}
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-[28px]">
+            Good morning, {student.name.split(" ")[0]}.
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            You have <span className="text-foreground">3 interviews</span> this week and
+            <span className="text-foreground"> 5 new AI matches</span> since yesterday.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/student/resume">
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Improve resume
+            </Link>
+          </Button>
+          <Button size="sm" asChild>
+            <Link href="/student/interview">
+              <Bot className="mr-1.5 h-3.5 w-3.5" /> Start mock interview
+            </Link>
+          </Button>
+        </div>
+      </motion.div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {kpis.map((k, i) => (
+          <motion.div
+            key={k.label}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: i * 0.04 }}
+            className="group relative overflow-hidden rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary/30"
+          >
+            <div className="flex items-start justify-between">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                {k.label}
+              </div>
+              <TrendingUp className={cn("h-3.5 w-3.5", k.trend === "up" ? "text-success" : "text-muted-foreground")} />
             </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const quickLinks = [
-  { href: "/student/resume", label: "Upload Resume", desc: "Parse & auto-fill", icon: "📄", color: "hover:border-purple-500/40" },
-  { href: "/student/jobs", label: "View Matches", desc: "AI-sorted jobs", icon: "🎯", color: "hover:border-blue-500/40" },
-  { href: "/student/interview", label: "Mock Interview", desc: "Practice with AI", icon: "🤖", color: "hover:border-cyan-500/40" },
-  { href: "/student/career", label: "Career Guidance", desc: "Ask AI mentor", icon: "💡", color: "hover:border-amber-500/40" },
-];
-
-export default function StudentDashboardPage() {
-  const { user } = useAuth();
-  const [stats, setStats] = useState<StudentDashboardStats | null>(null);
-  const [risk, setRisk] = useState<PlacementRisk | null>(null);
-  const [strength, setStrength] = useState<ProfileStrength | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [statsRes, riskRes, strengthRes] = await Promise.allSettled([
-          analyticsApi.studentOverview(),
-          aiApi.placementRisk(),
-          aiApi.profileStrength(),
-        ]);
-        if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
-        if (riskRes.status === "fulfilled") setRisk(riskRes.value.data);
-        if (strengthRes.status === "fulfilled") setStrength(strengthRes.value.data);
-      } catch {} finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
-
-  if (loading) return (
-    <div className="p-8 flex items-center justify-center min-h-screen">
-      <div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-    </div>
-  );
-
-  const appStats = stats?.applications;
-
-  return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-8 animate-fade-up">
-        <div className="flex items-center gap-2 text-sm text-slate-500 mb-1">
-          <LayoutDashboard className="w-4 h-4" /> Dashboard
-        </div>
-        <h1 className="text-2xl font-bold text-white">
-          Good day, <span className="gradient-text">{user?.full_name?.split(" ")[0] ?? "Student"}</span> 👋
-        </h1>
-        <p className="text-slate-500 text-sm mt-1">Here's your placement journey at a glance.</p>
-      </div>
-
-      {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 animate-fade-up delay-100">
-        <StatCard icon={ClipboardList} label="Applications" value={appStats?.total ?? 0} sub={`${appStats?.by_status?.shortlisted ?? 0} shortlisted`} color="bg-blue-500/20 text-blue-400" />
-        <StatCard icon={Briefcase} label="Job Matches" value={stats?.job_matches.total ?? 0} sub={`Avg ${stats?.job_matches.avg_score ?? 0}% match`} color="bg-purple-500/20 text-purple-400" />
-        <StatCard icon={MessageSquare} label="Interviews" value={stats?.interviews.completed ?? 0} sub={`${stats?.interviews.total ?? 0} total sessions`} color="bg-cyan-500/20 text-cyan-400" />
-        <StatCard icon={TrendingUp} label="Profile" value={`${stats?.profile_completion ?? 0}%`} sub="completion" color="bg-emerald-500/20 text-emerald-400" />
-      </div>
-
-      {/* Quick actions */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 animate-fade-up delay-200">
-        {quickLinks.map((l) => (
-          <Link key={l.href} href={l.href}
-            className={cn("glass p-4 card-hover border border-white/5 transition-all", l.color)}>
-            <div className="text-2xl mb-2">{l.icon}</div>
-            <div className="font-medium text-sm text-white">{l.label}</div>
-            <div className="text-xs text-slate-500 mt-0.5">{l.desc}</div>
-            <ChevronRight className="w-3 h-3 text-slate-600 mt-2" />
-          </Link>
+            <div className="mt-3 flex items-baseline gap-1">
+              <span className="text-3xl font-semibold tracking-tight tabular-nums">{k.value}</span>
+              {k.suffix && <span className="text-sm text-muted-foreground">{k.suffix}</span>}
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-[12px]">
+              <span className={cn(
+                "rounded-md px-1.5 py-0.5",
+                k.trend === "up" ? "bg-success/12 text-success" : "bg-muted text-muted-foreground",
+              )}>
+                {k.delta}
+              </span>
+              <span className="text-muted-foreground">{k.hint}</span>
+            </div>
+            <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/10 opacity-0 blur-2xl transition-opacity group-hover:opacity-100" />
+          </motion.div>
         ))}
       </div>
 
-      {/* Analytics row */}
-      <div className="grid lg:grid-cols-2 gap-5 animate-fade-up delay-300">
-        <ProfileStrengthCard data={strength} />
-        <RiskCard data={risk} />
+      {/* Main grid */}
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Chart card */}
+        <div className="lg:col-span-2 rounded-xl border border-border bg-surface p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-[15px] font-medium">Application activity</h3>
+              <p className="text-[12px] text-muted-foreground">Applications sent vs. interviews scheduled · last 8 weeks</p>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Applied</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[oklch(0.72_0.14_235)]" /> Interviews</span>
+            </div>
+          </div>
+          <div className="mt-4 h-[240px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={applicationTrend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
+                <defs>
+                  <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="oklch(0.68 0.19 285)" stopOpacity={0.5} />
+                    <stop offset="100%" stopColor="oklch(0.68 0.19 285)" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="g2" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="oklch(0.72 0.14 235)" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="oklch(0.72 0.14 235)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="oklch(1 0 0 / 0.05)" vertical={false} />
+                <XAxis dataKey="d" stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} width={30} />
+                <Tooltip
+                  contentStyle={{
+                    background: "oklch(0.19 0.017 270)",
+                    border: "1px solid oklch(1 0 0 / 0.1)",
+                    borderRadius: 10,
+                    fontSize: 12,
+                  }}
+                />
+                <Area type="monotone" dataKey="applied" stroke="oklch(0.68 0.19 285)" strokeWidth={2} fill="url(#g1)" />
+                <Area type="monotone" dataKey="interviews" stroke="oklch(0.72 0.14 235)" strokeWidth={2} fill="url(#g2)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Radar */}
+        <div className="rounded-xl border border-border bg-surface p-5">
+          <h3 className="text-[15px] font-medium">Interview performance</h3>
+          <p className="text-[12px] text-muted-foreground">Aggregate across 12 mock sessions</p>
+          <div className="mt-2 h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={performanceRadar} outerRadius="72%">
+                <PolarGrid stroke="oklch(1 0 0 / 0.08)" />
+                <PolarAngleAxis dataKey="axis" tick={{ fill: "oklch(0.68 0.02 270)", fontSize: 10 }} />
+                <Radar dataKey="A" stroke="oklch(0.68 0.19 285)" fill="oklch(0.68 0.19 285)" fillOpacity={0.25} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-2 flex items-baseline justify-between border-t border-border pt-3">
+            <span className="text-[12px] text-muted-foreground">Overall band</span>
+            <span className="text-lg font-semibold tabular-nums">A2 · Strong</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2 */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Matched jobs */}
+        <div className="lg:col-span-2 rounded-xl border border-border bg-surface">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <div>
+              <h3 className="text-[15px] font-medium">Top AI matches</h3>
+              <p className="text-[12px] text-muted-foreground">Ranked by your resume, skills, and preferences</p>
+            </div>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/student/jobs">View all <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link>
+            </Button>
+          </div>
+          <ul className="divide-y divide-border">
+            {matchedJobs.map((j) => (
+              <li key={j.id} className="group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-elevated/60">
+                <div
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold text-white"
+                  style={{ background: `linear-gradient(135deg, ${j.tint}, oklch(0.35 0.05 270))` }}
+                >
+                  {j.logo}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-[14px] font-medium">{j.role}</span>
+                    <span className="rounded bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      {j.match}% match
+                    </span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[12px] text-muted-foreground">
+                    {j.company} · {j.location}
+                  </div>
+                </div>
+                <div className="hidden text-right md:block">
+                  <div className="text-[13px] font-medium tabular-nums">{j.package}</div>
+                  <div className="text-[11px] text-muted-foreground">CTC</div>
+                </div>
+                <Button size="sm" variant="outline" className="opacity-70 group-hover:opacity-100">
+                  Apply <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-4">
+          {/* Upcoming interviews */}
+          <div className="rounded-xl border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h3 className="text-[15px] font-medium">Upcoming interviews</h3>
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+            <ul className="divide-y divide-border">
+              {upcomingInterviews.map((i) => (
+                <li key={i.id} className="flex items-start gap-3 px-5 py-3.5">
+                  <div className="flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-lg border border-border bg-elevated text-center">
+                    <span className="text-[9px] uppercase leading-none text-muted-foreground">
+                      {i.when.split(",")[0]}
+                    </span>
+                    <span className="text-[13px] font-semibold leading-tight">
+                      {i.when.split("· ")[0].split(" ").slice(-1)[0]}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium">{i.company}</div>
+                    <div className="truncate text-[12px] text-muted-foreground">{i.role}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">{i.when} · {i.mode}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Skills to improve */}
+          <div className="rounded-xl border border-border bg-surface p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[15px] font-medium">Skills to improve</h3>
+              <Button variant="ghost" size="sm">
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <p className="text-[12px] text-muted-foreground">AI-picked based on your target roles</p>
+            <ul className="mt-3 space-y-3">
+              {skillGaps.map((s) => (
+                <li key={s.skill}>
+                  <div className="mb-1 flex items-center justify-between text-[12.5px]">
+                    <span className="text-foreground">{s.skill}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {s.level} <span className="text-muted-foreground/60">/ {s.target}</span>
+                    </span>
+                  </div>
+                  <Progress value={(s.level / s.target) * 100} className="h-1.5" />
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3: activity + AI suggestion */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 rounded-xl border border-border bg-surface">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <h3 className="text-[15px] font-medium">Recent activity</h3>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/student/notifications">View all</Link>
+            </Button>
+          </div>
+          <ul className="divide-y divide-border">
+            {activity.map((a) => {
+              const Icon = a.kind === "success" ? CheckCircle2 : a.kind === "warning" ? AlertTriangle : Info;
+              const tint =
+                a.kind === "success" ? "text-success bg-success/12"
+                : a.kind === "warning" ? "text-warning bg-warning/12"
+                : "text-info bg-info/12";
+              return (
+                <li key={a.id} className="flex items-start gap-3 px-5 py-3">
+                  <div className={cn("mt-0.5 flex h-7 w-7 items-center justify-center rounded-md", tint)}>
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13.5px]">{a.title}</div>
+                    <div className="text-[11px] text-muted-foreground">{a.when} ago</div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/12 via-surface to-surface p-5">
+          <div className="aurora opacity-40" />
+          <div className="relative">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+              <Sparkles className="h-3 w-3" /> Career AI
+            </div>
+            <h3 className="mt-3 text-[16px] font-medium leading-snug">
+              Add 1 project on payments infra to unlock 4 higher-tier matches.
+            </h3>
+            <p className="mt-2 text-[13px] text-muted-foreground">
+              Companies like Stripe, Razorpay and Juspay weight payments experience
+              heavily. A single well-documented project could raise your match to 96%.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button size="sm" asChild>
+                <Link href="/student/career">Ask Career AI <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link>
+              </Button>
+              <Button size="sm" variant="outline">Dismiss</Button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+

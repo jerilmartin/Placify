@@ -6,6 +6,7 @@ import { Calendar, Clock, Star, BookOpen, AlertCircle, CheckCircle2, User, Play,
 import { formatDate } from "@/lib/utils";
 import { cn, getStatusColor } from "@/lib/utils";
 import { toast } from "sonner";
+import { isDemoMode, MOCK_MENTOR_SESSIONS } from "@/lib/mock-data";
 
 type Session = {
   id: string;
@@ -26,6 +27,11 @@ export default function MentorSessionsPage() {
 
   const fetchSessions = async () => {
     setLoading(true);
+    if (isDemoMode()) {
+      setSessions(MOCK_MENTOR_SESSIONS as Session[]);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await mentorsApi.listSessions();
       setSessions(res.data || []);
