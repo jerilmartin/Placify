@@ -1,5 +1,6 @@
 "use client";
 
+
 import { motion } from "framer-motion";
 import { UploadCloud, FileText, Sparkles, Download, Share2, Check, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -151,4 +152,3 @@ export default function ResumePage() {
     </div>
   );
 }
-

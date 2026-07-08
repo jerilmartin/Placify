@@ -1,5 +1,6 @@
 "use client";
 
+
 import { activity } from "@/lib/mock";
 import { CheckCircle2, AlertTriangle, Info, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -60,4 +61,3 @@ export default function NotificationsPage() {
     </div>
   );
 }
-

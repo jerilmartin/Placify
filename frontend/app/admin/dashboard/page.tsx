@@ -1,5 +1,6 @@
 "use client";
 
+
 import { Activity, CreditCard, Database, Key, ShieldCheck, Users } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -145,4 +146,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
