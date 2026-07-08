@@ -1,5 +1,6 @@
 "use client";
 
+
 import { motion } from "framer-motion";
 import { Search, SlidersHorizontal, Bookmark, MapPin, Building2, Filter, ArrowUpRight, Sparkles } from "lucide-react";
 import { useState } from "react";
@@ -156,4 +157,3 @@ export default function JobsPage() {
     </div>
   );
 }
-

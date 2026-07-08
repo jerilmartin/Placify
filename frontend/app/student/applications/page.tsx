@@ -1,5 +1,6 @@
 "use client";
 
+
 import { motion } from "framer-motion";
 import { CheckCircle2, Circle, Clock } from "lucide-react";
 import { applications, stages } from "@/lib/mock";
@@ -113,4 +114,3 @@ export default function ApplicationsPage() {
     </div>
   );
 }
-

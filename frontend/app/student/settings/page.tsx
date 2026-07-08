@@ -1,5 +1,6 @@
 "use client";
 
+
 import { useState } from "react";
 import { Bell, Lock, Palette, Globe, Smartphone, CreditCard, User, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -108,4 +109,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

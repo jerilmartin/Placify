@@ -1,5 +1,6 @@
 "use client";
 
+
 import { Search, Sparkles, ArrowUpRight, TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -142,4 +143,3 @@ export default function RecruiterPage() {
     </div>
   );
 }
-

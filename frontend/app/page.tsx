@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
@@ -13,6 +15,7 @@ import {
 } from "lucide-react";
 import { BrandLockup } from "@/components/brand";
 import { Button } from "@/components/ui/button";
+
 
 
 export default function Landing() {
