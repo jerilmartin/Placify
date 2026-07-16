@@ -3,25 +3,53 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowRight, GraduationCap, Users, Building2, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, GraduationCap, Users, Building2, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { BrandLockup } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/contexts/AuthContext";
 
-
-
-const portals: { key: string; label: string; icon: typeof GraduationCap; to: string }[] = [
-  { key: "student", label: "Student", icon: GraduationCap, to: "/app" },
-  { key: "recruiter", label: "Recruiter", icon: Users, to: "/app/recruiter" },
-  { key: "officer", label: "Placement Officer", icon: Building2, to: "/app/university" },
-  { key: "admin", label: "Platform Admin", icon: ShieldCheck, to: "/app/admin" },
+const portals: { key: string; label: string; icon: typeof GraduationCap }[] = [
+  { key: "student", label: "Student", icon: GraduationCap },
+  { key: "recruiter", label: "Recruiter", icon: Users },
+  { key: "university", label: "Placement Officer", icon: Building2 },
+  { key: "admin", label: "Platform Admin", icon: ShieldCheck },
 ];
+
+const ROLE_ROUTES: Record<string, string> = {
+  student: "/student/dashboard",
+  recruiter: "/recruiter/dashboard",
+  university: "/university/dashboard",
+  admin: "/admin/dashboard",
+  mentor: "/mentor/dashboard",
+};
 
 export default function Login() {
   const [role, setRole] = useState("student");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { login } = useAuth();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await login(email, password);
+      // After login, user metadata has the role — redirect based on selected role tab
+      router.push(ROLE_ROUTES[role] ?? "/student/dashboard");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Login failed. Please check your credentials.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="grid min-h-screen grid-cols-1 bg-background text-foreground lg:grid-cols-[1.05fr_1fr]">
       {/* Form */}
@@ -45,6 +73,7 @@ export default function Login() {
                 return (
                   <button
                     key={p.key}
+                    type="button"
                     onClick={() => setRole(p.key)}
                     className={`group flex flex-col items-center gap-1 rounded-md px-1.5 py-2 text-[11px] transition-colors ${
                       active ? "bg-elevated text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
@@ -59,17 +88,18 @@ export default function Login() {
               })}
             </div>
 
-            <form
-              className="mt-6 space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const dest = portals.find((p) => p.key === role)?.to ?? "/app";
-                router.push(dest );
-              }}
-            >
+            <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="you@iitb.ac.in" defaultValue="aarav.s@iitb.ac.in" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@university.ac.in"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                />
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -78,10 +108,25 @@ export default function Login() {
                     Forgot?
                   </a>
                 </div>
-                <Input id="password" type="password" placeholder="••••••••" defaultValue="demo1234" />
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                />
               </div>
-              <Button type="submit" className="w-full">
-                Continue <ArrowRight className="ml-1.5 h-4 w-4" />
+
+              {error && (
+                <p className="rounded-md bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+                  {error}
+                </p>
+              )}
+
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Signing in…" : <>Continue <ArrowRight className="ml-1.5 h-4 w-4" /></>}
               </Button>
             </form>
 
@@ -89,12 +134,15 @@ export default function Login() {
               <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline">SSO · Google</Button>
-              <Button variant="outline">SSO · Microsoft</Button>
+              <Button variant="outline" type="button">SSO · Google</Button>
+              <Button variant="outline" type="button">SSO · Microsoft</Button>
             </div>
 
             <p className="mt-6 text-center text-[12px] text-muted-foreground">
-              Demo access: any credentials will open the student workspace.
+              Don&apos;t have an account?{" "}
+              <Link href="/register" className="text-primary hover:underline">
+                Sign up
+              </Link>
             </p>
           </motion.div>
         </div>
@@ -113,7 +161,7 @@ export default function Login() {
               Every offer letter starts with a great match.
             </h2>
             <p className="mt-3 text-muted-foreground">
-              Placify runs India's most active placement cells — one workspace for
+              Placify runs India&apos;s most active placement cells — one workspace for
               students, recruiters, and campus leadership.
             </p>
           </div>
