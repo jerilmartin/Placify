@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     faiss_index_path: str = "./ml/models/jobs_faiss.index"
     enable_ml_features: bool = False  # Set True after ML setup
 
+    # ── Server ────────────────────────────────────────────
+    port: int = 8000
+
     # ── Rate Limiting ─────────────────────────────────────
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 900  # 15 min
@@ -59,6 +62,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Silently ignore unknown env vars
 
 
 settings = Settings()
