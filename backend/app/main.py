@@ -3,11 +3,15 @@ Campus Placement Management Platform - FastAPI Backend
 Main application entry point
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 import logging
+import traceback
 
 from app.config import settings
 from app.routers import (
@@ -27,9 +31,13 @@ from app.routers import (
 
 from app.middleware.rate_limit import RateLimitMiddleware
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure enhanced logging format
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s (%(filename)s:%(lineno)d): %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("placify.backend")
 
 
 @asynccontextmanager
@@ -40,6 +48,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"   Debug mode: {settings.debug}")
     yield
     logger.info("📴 Placement Platform API shutting down...")
+
 
 
 app = FastAPI(
