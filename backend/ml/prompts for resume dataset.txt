@@ -1,0 +1,3 @@
+cd backend\ml
+..\venv\Scripts\python.exe prepare_dataset.py
+..\venv\Scripts\python.exe train_ner.py --epochs 10

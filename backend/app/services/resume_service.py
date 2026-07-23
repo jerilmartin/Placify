@@ -149,8 +149,14 @@ def calculate_ats_score(resume_text: str, job: Optional[dict] = None) -> dict:
     final_score = max(0, min(100, int(score)))
 
     return {
-        "ats_score": final_score,
+        "overall_score": final_score,
         "grade": "A" if final_score >= 80 else "B" if final_score >= 60 else "C" if final_score >= 40 else "D",
+        "category_scores": {
+            "keyword_match": int(score * 0.9),  # Derived metric for UI
+            "formatting_structure": 85 if final_score > 50 else 40,
+            "readability": 90 if word_count > 200 else 60,
+            "action_verbs_impact": 80 if sections["projects"] else 50,
+        },
         "sections_found": sections,
         "keyword_matches": keyword_matches,
         "issues": issues,

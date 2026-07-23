@@ -25,6 +25,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("access_token", session.access_token);
+        }
         const appUser = await buildUserFromSession(session.user, session.access_token);
         setState({ user: appUser, token: session.access_token, isLoading: false, isAuthenticated: true });
       } else {
@@ -36,9 +39,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth state changes (login/logout/token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("access_token", session.access_token);
+        }
         const appUser = await buildUserFromSession(session.user, session.access_token);
         setState({ user: appUser, token: session.access_token, isLoading: false, isAuthenticated: true });
       } else {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("access_token");
+        }
         setState({ user: null, token: null, isLoading: false, isAuthenticated: false });
       }
     });

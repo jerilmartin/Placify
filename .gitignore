@@ -24,10 +24,17 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 
-# ── Machine Learning Artifacts ────────────────────────────────────────────────
-# Ignore local model weights/downloads to prevent pushing large files to git
+# ── Machine Learning Artifacts & Datasets ──────────────────────────────────────
+# Ignore local model weights, datasets, and training outputs to prevent pushing large files
 backend/ml/models/*
 !backend/ml/models/.gitkeep
+backend/ml/custom_ner_model/
+backend/ml/scratch/
+backend/ml/analysis_output.txt
+*.spacy
+Resume/
+Resume Datas/
+archive.zip
 
 # ── Secrets & Environment Configurations ──────────────────────────────────────
 .env

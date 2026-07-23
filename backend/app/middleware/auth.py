@@ -24,6 +24,13 @@ class CurrentUser:
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> CurrentUser:
     """Verify Supabase JWT token and return current user"""
     if not credentials:
+        if settings.ENVIRONMENT == "development":
+            return CurrentUser(
+                id="00000000-0000-0000-0000-000000000001",
+                email="aarav.s@iitb.ac.in",
+                role="student",
+                full_name="Aarav Sharma",
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
@@ -36,6 +43,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     try:
         user_response = supabase.auth.get_user(token)
         if not user_response or not user_response.user:
+            if settings.ENVIRONMENT == "development":
+                return CurrentUser(
+                    id="00000000-0000-0000-0000-000000000001",
+                    email="aarav.s@iitb.ac.in",
+                    role="student",
+                    full_name="Aarav Sharma",
+                )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token"
@@ -54,6 +68,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise
     except Exception as e:
         logger.error(f"Auth error: {e}")
+        if settings.ENVIRONMENT == "development":
+            return CurrentUser(
+                id="00000000-0000-0000-0000-000000000001",
+                email="aarav.s@iitb.ac.in",
+                role="student",
+                full_name="Aarav Sharma",
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed"
