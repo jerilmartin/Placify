@@ -22,10 +22,11 @@ async def register(user_data: UserCreate):
     Register a new user.
     Supports roles: student, recruiter, university, mentor
     """
-    supabase = get_supabase_anon()
+    supabase_anon = get_supabase_anon()
+    supabase_admin = get_supabase()  # service_role key — bypasses RLS
     try:
         # Register with Supabase Auth
-        auth_response = supabase.auth.sign_up({
+        auth_response = supabase_anon.auth.sign_up({
             "email": user_data.email,
             "password": user_data.password,
             "options": {
@@ -44,8 +45,43 @@ async def register(user_data: UserCreate):
                 detail="Registration failed. Email may already be in use."
             )
 
-        # TODO: Create role-specific profile in DB
-        # e.g., student_profiles, recruiter_profiles, etc.
+        user_id = str(auth_response.user.id)
+        role = user_data.role.value if hasattr(user_data.role, "value") else user_data.role
+        full_name = user_data.full_name
+        email = user_data.email
+
+        # Create role-specific profile row using service_role (bypasses RLS)
+        try:
+            if role == "student":
+                supabase_admin.table("student_profiles").upsert({
+                    "user_id": user_id,
+                    "full_name": full_name,
+                    "email": email,
+                    "university": user_data.university,
+                    "course": user_data.course,
+                    "graduation_year": user_data.graduation_year,
+                    "profile_completion": 0,
+                }, on_conflict="user_id").execute()
+            elif role == "university":
+                supabase_admin.table("university_profiles").upsert({
+                    "user_id": user_id,
+                    "name": full_name,
+                    "contact_email": email,
+                }, on_conflict="user_id").execute()
+            elif role == "recruiter":
+                supabase_admin.table("recruiter_profiles").upsert({
+                    "user_id": user_id,
+                    "company_name": full_name,
+                    "contact_email": email,
+                }, on_conflict="user_id").execute()
+            elif role == "mentor":
+                supabase_admin.table("mentor_profiles").upsert({
+                    "user_id": user_id,
+                    "full_name": full_name,
+                }, on_conflict="user_id").execute()
+        except Exception as profile_err:
+            logger.error(f"Profile row creation failed for {user_id}: {profile_err}")
+            # Don't block registration if profile insert fails
 
         return TokenResponse(
             access_token=auth_response.session.access_token if auth_response.session else "",
@@ -58,6 +94,8 @@ async def register(user_data: UserCreate):
                 created_at=auth_response.user.created_at,
             )
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Registration error: {e}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

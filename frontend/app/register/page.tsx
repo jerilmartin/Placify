@@ -52,7 +52,13 @@ export default function RegisterPage() {
       };
       router.push(roleRoutes[selectedRole]);
     } catch (err: unknown) {
-      const message = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Registration failed";
+      const errMsg = err instanceof Error ? err.message : "";
+      if (errMsg === "CHECK_EMAIL") {
+        toast.success("Account created! Please check your email to confirm your account, then sign in.");
+        router.push("/login");
+        return;
+      }
+      const message = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || errMsg || "Registration failed";
       toast.error(message);
     } finally {
       setLoading(false);

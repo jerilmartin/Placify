@@ -17,16 +17,17 @@ async def list_my_applications(current_user=Depends(get_current_user)):
     supabase = get_supabase()
     try:
         profile = supabase.table("student_profiles") \
-            .select("id").eq("user_id", str(current_user.id)).single().execute()
+            .select("id").eq("user_id", str(current_user.id)).limit(1).execute()
         if not profile.data:
             return []
         result = supabase.table("applications") \
             .select("*, jobs(title, company, location, package_lpa)") \
-            .eq("student_id", profile.data["id"]) \
+            .eq("student_id", profile.data[0]["id"]) \
             .order("applied_at", desc=True) \
             .execute()
         return result.data or []
     except Exception as e:
+        logger.error(f"Error fetching applications: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch applications")
 
 
@@ -36,21 +37,23 @@ async def apply_to_job(data: ApplicationCreate, current_user=Depends(get_current
     supabase = get_supabase()
     try:
         profile = supabase.table("student_profiles") \
-            .select("id").eq("user_id", str(current_user.id)).single().execute()
+            .select("id").eq("user_id", str(current_user.id)).limit(1).execute()
         if not profile.data:
             raise HTTPException(status_code=404, detail="Complete your profile first")
+
+        student_id = profile.data[0]["id"]
 
         # Check if already applied
         existing = supabase.table("applications") \
             .select("id") \
-            .eq("student_id", profile.data["id"]) \
+            .eq("student_id", student_id) \
             .eq("job_id", str(data.job_id)) \
             .execute()
         if existing.data:
             raise HTTPException(status_code=409, detail="Already applied to this job")
 
         payload = {
-            "student_id": profile.data["id"],
+            "student_id": student_id,
             "job_id": str(data.job_id),
             "cover_letter": data.cover_letter,
             "status": "submitted",
@@ -60,6 +63,7 @@ async def apply_to_job(data: ApplicationCreate, current_user=Depends(get_current
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error submitting application: {e}")
         raise HTTPException(status_code=500, detail="Failed to submit application")
 
 

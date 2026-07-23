@@ -70,12 +70,14 @@ async def get_eligible_students(drive_id: uuid.UUID, current_user=Depends(get_cu
     """
     supabase = get_supabase()
     try:
-        drive = supabase.table("placement_drives").select("*").eq("id", str(drive_id)).single().execute()
-        if not drive.data:
+        drive_result = supabase.table("placement_drives").select("*").eq("id", str(drive_id)).limit(1).execute()
+        if not drive_result.data:
             raise HTTPException(status_code=404, detail="Drive not found")
 
-        eligibility = drive.data.get("eligibility") or {}
+        drive = drive_result.data[0]
+        eligibility = drive.get("eligibility") or {}
         min_cgpa = eligibility.get("min_cgpa", 0)
+        max_backlogs = eligibility.get("max_backlogs", None)
         eligible_branches = eligibility.get("eligible_branches", [])
         grad_year = eligibility.get("graduation_year")
 
@@ -84,18 +86,33 @@ async def get_eligible_students(drive_id: uuid.UUID, current_user=Depends(get_cu
             query = query.gte("cgpa", min_cgpa)
         if grad_year:
             query = query.eq("graduation_year", grad_year)
-        if eligible_branches:
-            query = query.in_("course", eligible_branches)
+        # max_backlogs: only apply filter if explicitly set (0 means "no backlogs allowed")
+        if max_backlogs is not None:
+            query = query.lte("active_backlogs", max_backlogs)
 
         result = query.execute()
+        students = result.data or []
+
+        # eligible_branches: do case-insensitive partial match in Python
+        # (Supabase anon client lacks ilike on JSONB; course is a text column)
+        if eligible_branches:
+            branches_lower = [b.lower() for b in eligible_branches]
+            students = [
+                s for s in students
+                if s.get("course") and any(
+                    b in (s["course"] or "").lower() for b in branches_lower
+                )
+            ]
+
         return {
-            "drive": drive.data,
-            "eligible_count": len(result.data or []),
-            "students": result.data or [],
+            "drive": drive,
+            "eligible_count": len(students),
+            "students": students,
         }
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Eligibility check failed for drive {drive_id}: {e}")
         raise HTTPException(status_code=500, detail="Eligibility check failed")
 
 
