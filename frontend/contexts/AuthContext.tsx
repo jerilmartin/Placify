@@ -89,7 +89,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // After signup, create the role-specific profile row
     if (signUpData.user) {
-      await createProfileRow(signUpData.user.id, role, full_name, email);
+      try {
+        await createProfileRow(signUpData.user.id, role, full_name, email);
+      } catch (err) {
+        console.error("Error creating profile during registration:", err);
+      }
     }
 
     if (signUpData.session) {
@@ -98,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       // Email confirmation required — Supabase didn't auto-sign in
       setState((s) => ({ ...s, isLoading: false }));
+      throw new Error("CHECK_EMAIL");
     }
   };
 
@@ -140,28 +145,32 @@ async function buildUserFromSession(
 
 async function createProfileRow(userId: string, role: UserRole, fullName: string, email: string) {
   if (role === "student") {
-    await supabase.from("student_profiles").upsert({
+    const { error } = await supabase.from("student_profiles").upsert({
       user_id: userId,
       full_name: fullName,
       email,
       profile_completion: 0,
     }, { onConflict: "user_id" });
+    if (error) console.error("[createProfileRow] student_profiles error:", error.message, error.details);
   } else if (role === "university") {
-    await supabase.from("university_profiles").upsert({
+    const { error } = await supabase.from("university_profiles").upsert({
       user_id: userId,
       name: fullName,
       contact_email: email,
     }, { onConflict: "user_id" });
+    if (error) console.error("[createProfileRow] university_profiles error:", error.message, error.details);
   } else if (role === "recruiter") {
-    await supabase.from("recruiter_profiles").upsert({
+    const { error } = await supabase.from("recruiter_profiles").upsert({
       user_id: userId,
       company_name: fullName,
       contact_email: email,
     }, { onConflict: "user_id" });
+    if (error) console.error("[createProfileRow] recruiter_profiles error:", error.message, error.details);
   } else if (role === "mentor") {
-    await supabase.from("mentor_profiles").upsert({
+    const { error } = await supabase.from("mentor_profiles").upsert({
       user_id: userId,
       full_name: fullName,
     }, { onConflict: "user_id" });
+    if (error) console.error("[createProfileRow] mentor_profiles error:", error.message, error.details);
   }
 }

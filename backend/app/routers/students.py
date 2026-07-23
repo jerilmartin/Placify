@@ -25,11 +25,13 @@ async def get_my_profile(current_user=Depends(get_current_user)):
         result = supabase.table("student_profiles") \
             .select("*") \
             .eq("user_id", str(current_user.id)) \
-            .single() \
+            .limit(1) \
             .execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Profile not found. Please complete onboarding.")
-        return result.data
+        return result.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching profile: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch profile")
@@ -44,7 +46,11 @@ async def create_profile(data: StudentProfileCreate, current_user=Depends(get_cu
         payload["user_id"] = str(current_user.id)
         payload["profile_completion"] = calculate_profile_completion(payload)
         result = supabase.table("student_profiles").insert(payload).execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Profile creation returned no data")
         return result.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating profile: {e}")
         raise HTTPException(status_code=500, detail="Failed to create profile")
@@ -56,18 +62,23 @@ async def update_profile(data: StudentProfileUpdate, current_user=Depends(get_cu
     supabase = get_supabase()
     try:
         update_data = data.model_dump(exclude_none=True)
-        # Recalculate completion
+        # Fetch current profile to merge and recalculate completion
         profile_result = supabase.table("student_profiles") \
-            .select("*").eq("user_id", str(current_user.id)).single().execute()
-        if profile_result.data:
-            merged = {**profile_result.data, **update_data}
-            update_data["profile_completion"] = calculate_profile_completion(merged)
+            .select("*").eq("user_id", str(current_user.id)).limit(1).execute()
+        if not profile_result.data:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        merged = {**profile_result.data[0], **update_data}
+        update_data["profile_completion"] = calculate_profile_completion(merged)
 
         result = supabase.table("student_profiles") \
             .update(update_data) \
             .eq("user_id", str(current_user.id)) \
             .execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Update returned no data")
         return result.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error updating profile: {e}")
         raise HTTPException(status_code=500, detail="Failed to update profile")
@@ -79,13 +90,14 @@ async def get_student_by_id(student_id: uuid.UUID, current_user=Depends(get_curr
     supabase = get_supabase()
     try:
         result = supabase.table("student_profiles") \
-            .select("*").eq("id", str(student_id)).single().execute()
+            .select("*").eq("id", str(student_id)).limit(1).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Student not found")
-        return result.data
+        return result.data[0]
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error fetching student {student_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch student")
 
 

@@ -1,5 +1,8 @@
 import re
-import spacy
+try:
+    import spacy
+except ImportError:
+    spacy = None
 import os
 from typing import Dict, List, Optional
 import logging
@@ -102,7 +105,12 @@ TECH_SKILLS = {
 class ResumeParserML:
     def __init__(self):
         logger.info("Initializing ResumeParserML...")
-        
+        self.nlp = None
+
+        if spacy is None:
+            logger.warning("spacy is not installed. ResumeParserML running in regex fallback mode.")
+            return
+
         # Try loading the custom trained model first
         custom_model_path = os.path.join(os.path.dirname(__file__), "custom_ner_model")
         if os.path.exists(custom_model_path):
@@ -117,8 +125,8 @@ class ResumeParserML:
         try:
             self.nlp = spacy.load("en_core_web_sm")
             logger.info("Loaded base en_core_web_sm model")
-        except OSError:
-            logger.warning("Spacy model 'en_core_web_sm' not found. Please run: python -m spacy download en_core_web_sm")
+        except Exception as e:
+            logger.warning(f"Spacy model 'en_core_web_sm' could not be loaded ({e}). Parser using regex heuristics.")
             self.nlp = None
 
     def extract_entities(self, text: str) -> Dict:

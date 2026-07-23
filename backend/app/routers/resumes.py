@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Initialize local ML parser (loads spaCy model once)
-ml_parser = ResumeParserML()
+try:
+    ml_parser = ResumeParserML()
+except Exception as e:
+    logger.warning(f"Could not initialize ResumeParserML: {e}")
+    ml_parser = None
 
 
 @router.post("/upload")

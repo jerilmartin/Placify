@@ -47,15 +47,17 @@ async def get_job_matches(current_user=Depends(get_current_user)):
     supabase = get_supabase()
     try:
         # Get student profile
-        profile = supabase.table("student_profiles") \
-            .select("*").eq("user_id", str(current_user.id)).single().execute()
-        if not profile.data:
+        profile_res = supabase.table("student_profiles") \
+            .select("*").eq("user_id", str(current_user.id)).limit(1).execute()
+        if not profile_res.data:
             raise HTTPException(status_code=404, detail="Complete your profile first")
+
+        profile = profile_res.data[0]
 
         # Get existing matches
         matches = supabase.table("job_matches") \
             .select("*, jobs(*)") \
-            .eq("student_id", profile.data["id"]) \
+            .eq("student_id", profile["id"]) \
             .order("match_score", desc=True) \
             .execute()
 
@@ -64,12 +66,13 @@ async def get_job_matches(current_user=Depends(get_current_user)):
 
         # Compute fresh matches if none exist
         jobs = supabase.table("jobs").select("*").eq("status", "active").execute()
-        computed = await compute_job_matches(profile.data, jobs.data or [])
+        computed = await compute_job_matches(profile, jobs.data or [])
         return computed
 
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error computing job matches: {e}")
         raise HTTPException(status_code=500, detail="Failed to compute job matches")
 
 
@@ -78,13 +81,14 @@ async def get_job(job_id: uuid.UUID, current_user=Depends(get_current_user)):
     """Get job by ID"""
     supabase = get_supabase()
     try:
-        result = supabase.table("jobs").select("*").eq("id", str(job_id)).single().execute()
+        result = supabase.table("jobs").select("*").eq("id", str(job_id)).limit(1).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Job not found")
-        return result.data
+        return result.data[0]
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error fetching job {job_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch job")
 
 

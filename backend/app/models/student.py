@@ -1,6 +1,6 @@
 """Student profile Pydantic models"""
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 from datetime import datetime
 import uuid
@@ -30,8 +30,9 @@ class StudentProfileBase(BaseModel):
     bio: Optional[str] = None
     university: Optional[str] = None
     course: Optional[str] = None
-    graduation_year: Optional[int] = None
-    cgpa: Optional[float] = None
+    graduation_year: Optional[int] = Field(default=None, ge=2000, le=2035)
+    cgpa: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+    active_backlogs: Optional[int] = Field(default=0, ge=0)
     skills: Optional[List[str]] = []
     github_url: Optional[str] = None
     linkedin_url: Optional[str] = None

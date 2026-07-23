@@ -335,45 +335,71 @@ ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 -- RLS POLICIES
 -- ══════════════════════════════════════════════════════════════
 
--- Profiles: users manage their own
-CREATE POLICY "Own student profile" ON student_profiles USING (user_id = auth.uid());
-CREATE POLICY "Own university profile" ON university_profiles USING (user_id = auth.uid());
-CREATE POLICY "Own recruiter profile" ON recruiter_profiles USING (user_id = auth.uid());
-CREATE POLICY "Own mentor profile" ON mentor_profiles USING (user_id = auth.uid());
+-- Profiles: users manage their own (SELECT, INSERT, UPDATE)
+CREATE POLICY "Own student profile" ON student_profiles FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "Public student profile view" ON student_profiles FOR SELECT USING (true);
+
+CREATE POLICY "Own university profile" ON university_profiles FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "Public university profile view" ON university_profiles FOR SELECT USING (true);
+
+CREATE POLICY "Own recruiter profile" ON recruiter_profiles FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "Public recruiter profile view" ON recruiter_profiles FOR SELECT USING (true);
+
+CREATE POLICY "Own mentor profile" ON mentor_profiles FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 CREATE POLICY "View verified mentors" ON mentor_profiles FOR SELECT USING (verified = true);
 
 -- Jobs: everyone reads active, recruiters manage own
 CREATE POLICY "View active jobs" ON jobs FOR SELECT USING (status = 'active');
-CREATE POLICY "Recruiters manage jobs" ON jobs USING (recruiter_id = auth.uid());
+CREATE POLICY "Recruiters manage jobs" ON jobs FOR ALL USING (recruiter_id = auth.uid()) WITH CHECK (recruiter_id = auth.uid());
 
--- Drives: public read
+-- Drives: public read, university manages own
 CREATE POLICY "View all drives" ON placement_drives FOR SELECT USING (true);
+CREATE POLICY "University manages drives" ON placement_drives FOR ALL 
+  USING (university_id IN (SELECT id FROM university_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (university_id IN (SELECT id FROM university_profiles WHERE user_id = auth.uid()));
 
 -- Student-scoped tables
-CREATE POLICY "Own resumes" ON resumes
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Own applications" ON applications
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Own drive apps" ON drive_applications
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Own matches" ON job_matches
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Own interviews" ON interviews
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Own guidance" ON career_guidance_sessions
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Own predictions" ON placement_predictions
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Own cover letters" ON cover_letters
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Own documents" ON documents
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+CREATE POLICY "Own resumes" ON resumes FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "Own applications" ON applications FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "Own drive apps" ON drive_applications FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "Own matches" ON job_matches FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "Own interviews" ON interviews FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "Own guidance" ON career_guidance_sessions FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "Own predictions" ON placement_predictions FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "Own cover letters" ON cover_letters FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "Own documents" ON documents FOR ALL
+  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
+  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
 
 -- Notifications: user sees own
-CREATE POLICY "Own notifications" ON notifications USING (user_id = auth.uid());
+CREATE POLICY "Own notifications" ON notifications FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
 -- Mentor sessions: both parties can see
-CREATE POLICY "Mentor sees sessions" ON mentor_sessions
+CREATE POLICY "Mentor sees sessions" ON mentor_sessions FOR ALL
   USING (mentor_id IN (SELECT id FROM mentor_profiles WHERE user_id = auth.uid()));
-CREATE POLICY "Student sees sessions" ON mentor_sessions
+CREATE POLICY "Student sees sessions" ON mentor_sessions FOR ALL
   USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
