@@ -1,142 +1,106 @@
 "use client";
 
-
-import { Search, Sparkles, ArrowUpRight, TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { ArrowUpRight, BriefcaseBusiness, CheckCircle2, Loader2, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { recruitersApi } from "@/lib/api";
+import type { RecruiterOverview } from "@/lib/types";
 
+export default function RecruiterDashboard() {
+  const [overview, setOverview] = useState<RecruiterOverview | null>(null);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    recruitersApi.getOverview()
+      .then(({ data }) => setOverview(data))
+      .catch(() => toast.error("Could not load the recruiter workspace"))
+      .finally(() => setLoading(false));
+  }, []);
 
-const funnel = [
-  { stage: "Applied", n: 1284 },
-  { stage: "Screened", n: 612 },
-  { stage: "Assessed", n: 214 },
-  { stage: "Interview", n: 88 },
-  { stage: "Offer", n: 24 },
-];
+  if (loading) {
+    return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+  }
 
-const candidates = [
-  { name: "Priya Menon", cgpa: 9.1, uni: "IIT Delhi", role: "Frontend Engineer", match: 96, tags: ["React", "TypeScript", "Design systems"] },
-  { name: "Rohan Iyer", cgpa: 8.6, uni: "NIT Trichy", role: "Backend Engineer", match: 93, tags: ["Go", "Postgres", "Kafka"] },
-  { name: "Ananya Rao", cgpa: 8.9, uni: "BITS Pilani", role: "Full-Stack Engineer", match: 91, tags: ["Next.js", "Node", "AWS"] },
-  { name: "Kabir Khan", cgpa: 8.4, uni: "IIT Bombay", role: "ML Engineer", match: 89, tags: ["PyTorch", "LLMs", "Ranking"] },
-  { name: "Sara Verma", cgpa: 9.3, uni: "IIIT Hyderabad", role: "Frontend Engineer", match: 88, tags: ["Vue", "GraphQL"] },
-];
+  if (!overview) {
+    return <div className="p-8 text-sm text-muted-foreground">Recruiter data is unavailable.</div>;
+  }
 
-export default function RecruiterPage() {
+  const metrics = [
+    { label: "Open roles", value: overview.metrics.open_jobs, icon: BriefcaseBusiness },
+    { label: "Applications", value: overview.metrics.applications, icon: Users },
+    { label: "Shortlisted", value: overview.metrics.shortlisted, icon: CheckCircle2 },
+    { label: "Offers", value: overview.metrics.offers, icon: ArrowUpRight },
+  ];
+
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
-      <div className="mb-6 flex items-end justify-between">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Recruiter · Stripe India</div>
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-muted-foreground">
+            Recruiter · {overview.profile.company_name}
+            <span className={overview.profile.verified ? "rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-400" : "rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-400"}>
+              {overview.profile.verified ? "Verified" : "Pending verification"}
+            </span>
+          </div>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-[28px]">Talent workspace</h1>
         </div>
-        <Button size="sm">Post a job</Button>
+        <Button asChild disabled={!overview.profile.verified}><Link href="/recruiter/post-job">Post a job</Link></Button>
       </div>
 
-      {/* KPIs */}
+      {!overview.profile.verified && (
+        <div className="mb-5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-100">
+          A university placement representative must verify this recruiter profile before new jobs can be published.
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { l: "Open roles", v: "12" },
-          { l: "Applications", v: "1,284" },
-          { l: "Shortlisted", v: "214" },
-          { l: "Offers extended", v: "24" },
-        ].map((k) => (
-          <div key={k.l} className="rounded-xl border border-border bg-surface p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{k.l}</div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-semibold tracking-tight tabular-nums">{k.v}</span>
-              <span className="flex items-center gap-1 text-[11px] text-success"><TrendingUp className="h-3 w-3" /> +12%</span>
+        {metrics.map(({ label, value, icon: Icon }) => (
+          <div key={label} className="rounded-xl border border-border bg-surface p-4">
+            <div className="flex items-center justify-between text-[11px] uppercase tracking-wider text-muted-foreground">
+              {label}<Icon className="h-4 w-4" />
             </div>
+            <div className="mt-2 text-3xl font-semibold tabular-nums">{value}</div>
           </div>
         ))}
       </div>
 
-      {/* Natural language search */}
-      <div className="mt-6 rounded-xl border border-primary/30 bg-gradient-to-br from-primary/10 via-surface to-surface p-5">
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
-          <Sparkles className="h-3 w-3" /> Natural language search
-        </div>
-        <div className="mt-3 flex gap-2">
-          <div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-background/60 px-3">
-            <Search className="h-4 w-4 text-muted-foreground" />
-            <Input
-              defaultValue="Find React developers with CGPA above 8 open to Bengaluru"
-              className="h-10 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <Button>Search</Button>
-        </div>
-      </div>
-
-      {/* Funnel + candidates */}
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+      <div className="mt-6 grid gap-4 lg:grid-cols-[0.9fr_1.5fr]">
         <div className="rounded-xl border border-border bg-surface p-5">
-          <h3 className="text-[14px] font-medium">Hiring funnel · Q4</h3>
-          <div className="mt-3 h-[240px]">
+          <h2 className="text-sm font-medium">Hiring funnel</h2>
+          <div className="mt-4 h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={funnel} margin={{ left: -18 }}>
-                <CartesianGrid stroke="oklch(1 0 0 / 0.05)" vertical={false} />
-                <XAxis dataKey="stage" stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} width={38} />
-                <Tooltip contentStyle={{ background: "oklch(0.19 0.017 270)", border: "1px solid oklch(1 0 0 / 0.1)", borderRadius: 10, fontSize: 12 }} />
-                <Bar dataKey="n" fill="oklch(0.68 0.19 285)" radius={[6, 6, 0, 0]} />
+              <BarChart data={overview.funnel} margin={{ left: -22 }}>
+                <CartesianGrid stroke="currentColor" className="text-border" vertical={false} />
+                <XAxis dataKey="stage" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis fontSize={11} tickLine={false} axisLine={false} width={38} />
+                <Tooltip contentStyle={{ background: "var(--color-background)", border: "1px solid var(--color-border)", borderRadius: 10 }} />
+                <Bar dataKey="count" fill="var(--color-primary)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="lg:col-span-2 rounded-xl border border-border bg-surface">
-          <div className="flex items-center justify-between border-b border-border px-5 py-3">
-            <h3 className="text-[14px] font-medium">Ranked candidates</h3>
-            <div className="text-[12px] text-muted-foreground">Payments SWE · India</div>
+        <div className="rounded-xl border border-border bg-surface">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <h2 className="text-sm font-medium">Recent applications</h2>
+            <Button asChild size="sm" variant="ghost"><Link href="/recruiter/candidates">View pipeline</Link></Button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-[13px]">
-              <thead className="bg-elevated/40 text-[11px] uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="px-5 py-2.5 text-left">Candidate</th>
-                  <th className="px-3 py-2.5 text-left">University</th>
-                  <th className="px-3 py-2.5 text-left">CGPA</th>
-                  <th className="px-3 py-2.5 text-left">Match</th>
-                  <th className="px-3 py-2.5 text-left">Signals</th>
-                  <th className="px-5 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {candidates.map((c) => (
-                  <tr key={c.name} className="hover:bg-elevated/60">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[oklch(0.55_0.20_235)] text-[11px] font-semibold text-white">
-                          {c.name.split(" ").map((s) => s[0]).join("")}
-                        </div>
-                        <div>
-                          <div className="font-medium">{c.name}</div>
-                          <div className="text-[11px] text-muted-foreground">{c.role}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-muted-foreground">{c.uni}</td>
-                    <td className="px-3 py-3 tabular-nums">{c.cgpa}</td>
-                    <td className="px-3 py-3">
-                      <span className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[11px] font-medium text-primary">{c.match}%</span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {c.tags.slice(0, 2).map((t) => (
-                          <span key={t} className="rounded bg-elevated px-1.5 py-0.5 text-[10.5px]">{t}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <Button variant="ghost" size="sm">View <ArrowUpRight className="ml-1 h-3.5 w-3.5" /></Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="divide-y divide-border">
+            {overview.recent_applications.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">Applications to your jobs will appear here.</div>
+            ) : overview.recent_applications.map((application) => (
+              <div key={application.id} className="flex items-center justify-between gap-4 px-5 py-4">
+                <div>
+                  <div className="font-medium">{application.student_profiles?.full_name || "Student"}</div>
+                  <div className="text-xs text-muted-foreground">{application.student_profiles?.university || "University not specified"}</div>
+                </div>
+                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs capitalize text-primary">{application.status}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

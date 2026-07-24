@@ -117,10 +117,69 @@ export interface Application {
   status: ApplicationStatus;
   next_step?: string;
   next_step_date?: string;
+  recruiter_notes?: string;
   applied_at: string;
   created_at: string;
   updated_at: string;
   jobs?: Partial<Job>;  // joined
+}
+
+export interface RecruiterProfile {
+  id: string;
+  user_id: string;
+  company_name: string;
+  designation?: string;
+  company_website?: string;
+  company_description?: string;
+  industry?: string;
+  company_size?: string;
+  headquarters?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  verified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CandidateApplication extends Application {
+  student_profiles?: {
+    id: string;
+    full_name?: string;
+    email?: string;
+    phone?: string;
+    university?: string;
+    course?: string;
+    graduation_year?: number;
+    cgpa?: number;
+    skills?: string[];
+    github_url?: string;
+    linkedin_url?: string;
+    portfolio_url?: string;
+  };
+  job?: Job;
+  match_score: number;
+  match_reason?: string;
+  skill_matches: string[];
+  missing_skills: string[];
+  recommendation?: string;
+}
+
+export interface RecruiterOverview {
+  profile: RecruiterProfile;
+  jobs: Job[];
+  recent_applications: CandidateApplication[];
+  metrics: {
+    total_jobs: number;
+    open_jobs: number;
+    applications: number;
+    reviewed: number;
+    shortlisted: number;
+    interviewed: number;
+    offers: number;
+    accepted: number;
+    rejected: number;
+  };
+  funnel: Array<{ stage: string; count: number }>;
 }
 
 // ── Interview ─────────────────────────────────────────────────────────────────
@@ -182,6 +241,47 @@ export interface PlacementDrive {
   total_selected: number;
   created_at: string;
   updated_at: string;
+}
+
+export type DriveRequestStatus =
+  | "pending"
+  | "changes_requested"
+  | "approved"
+  | "rejected"
+  | "cancelled";
+
+export interface DriveRequest {
+  id: string;
+  recruiter_id: string;
+  university_id: string;
+  company_name: string;
+  title: string;
+  role: string;
+  description?: string;
+  eligibility: EligibilityCriteria;
+  drive_date?: string;
+  registration_deadline?: string;
+  package_lpa?: number;
+  location?: string;
+  status: DriveRequestStatus;
+  review_notes?: string;
+  reviewed_by?: string;
+  submitted_at: string;
+  reviewed_at?: string;
+  placement_drive_id?: string;
+  created_at: string;
+  updated_at: string;
+  university_profiles?: {
+    id: string;
+    name: string;
+    location?: string;
+  };
+  recruiter_profiles?: Partial<RecruiterProfile>;
+  placement_drives?: {
+    id: string;
+    status: DriveStatus;
+    created_at: string;
+  };
 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────

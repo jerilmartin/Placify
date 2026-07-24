@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from app.models.job import JobCreate, JobUpdate, JobResponse, JobMatchResponse
-from app.middleware.auth import get_current_user
+from app.middleware.auth import get_current_user, require_recruiter
 from app.database import get_supabase
 from app.services.matching_service import compute_job_matches
 import logging
@@ -93,35 +93,65 @@ async def get_job(job_id: uuid.UUID, current_user=Depends(get_current_user)):
 
 
 @router.post("/", response_model=JobResponse, status_code=201)
-async def create_job(data: JobCreate, current_user=Depends(get_current_user)):
-    """Create a new job (recruiter/university only)"""
+async def create_job(data: JobCreate, current_user=Depends(require_recruiter)):
+    """Create a direct-hiring job owned by the authenticated recruiter."""
     supabase = get_supabase()
     try:
-        payload = data.model_dump()
+        profile = supabase.table("recruiter_profiles") \
+            .select("verified").eq("user_id", str(current_user.id)).limit(1).execute()
+        if not profile.data:
+            raise HTTPException(status_code=404, detail="Complete your recruiter profile first")
+        if not profile.data[0].get("verified"):
+            raise HTTPException(status_code=403, detail="Recruiter verification is required before posting jobs")
+
+        payload = data.model_dump(exclude_none=True)
         payload["recruiter_id"] = str(current_user.id)
+        # Direct recruiter jobs are not allowed to impersonate a university drive.
+        payload.pop("university_id", None)
+        payload.pop("placement_drive_id", None)
         result = supabase.table("jobs").insert(payload).execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Job creation returned no data")
         return result.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Failed to create recruiter job: {e}")
         raise HTTPException(status_code=500, detail="Failed to create job")
 
 
 @router.put("/{job_id}", response_model=JobResponse)
-async def update_job(job_id: uuid.UUID, data: JobUpdate, current_user=Depends(get_current_user)):
+async def update_job(job_id: uuid.UUID, data: JobUpdate, current_user=Depends(require_recruiter)):
     """Update job posting"""
     supabase = get_supabase()
     try:
+        update_data = data.model_dump(exclude_none=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No job fields supplied")
         result = supabase.table("jobs") \
-            .update(data.model_dump(exclude_none=True)) \
+            .update(update_data) \
             .eq("id", str(job_id)) \
+            .eq("recruiter_id", str(current_user.id)) \
             .execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Job not found or not owned by this recruiter")
         return result.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Failed to update job {job_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to update job")
 
 
 @router.delete("/{job_id}")
-async def delete_job(job_id: uuid.UUID, current_user=Depends(get_current_user)):
+async def delete_job(job_id: uuid.UUID, current_user=Depends(require_recruiter)):
     """Delete/close job posting"""
     supabase = get_supabase()
-    supabase.table("jobs").update({"status": "closed"}).eq("id", str(job_id)).execute()
+    result = supabase.table("jobs") \
+        .update({"status": "closed"}) \
+        .eq("id", str(job_id)) \
+        .eq("recruiter_id", str(current_user.id)) \
+        .execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Job not found or not owned by this recruiter")
     return {"message": "Job closed successfully"}

@@ -1,6 +1,6 @@
 """Job Pydantic models"""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from enum import Enum
 from datetime import date, datetime
@@ -32,15 +32,15 @@ class JobBase(BaseModel):
     location: Optional[str] = None
     description: Optional[str] = None
     requirements: Optional[str] = None
-    skills_required: List[str] = []
+    skills_required: List[str] = Field(default_factory=list)
     job_type: Optional[JobType] = JobType.FULL_TIME
     experience_level: Optional[ExperienceLevel] = ExperienceLevel.ENTRY
     salary_range: Optional[str] = None
-    package_lpa: Optional[float] = None  # Package in LPA
+    package_lpa: Optional[float] = Field(default=None, ge=0)  # Package in LPA
     deadline: Optional[date] = None
-    min_cgpa: Optional[float] = None
-    eligible_branches: Optional[List[str]] = []
-    no_of_openings: Optional[int] = None
+    min_cgpa: Optional[float] = Field(default=None, ge=0, le=10)
+    eligible_branches: Optional[List[str]] = Field(default_factory=list)
+    no_of_openings: Optional[int] = Field(default=None, ge=1)
     bond_details: Optional[str] = None
 
 
@@ -50,7 +50,22 @@ class JobCreate(JobBase):
     placement_drive_id: Optional[uuid.UUID] = None
 
 
-class JobUpdate(JobBase):
+class JobUpdate(BaseModel):
+    title: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    skills_required: Optional[List[str]] = None
+    job_type: Optional[JobType] = None
+    experience_level: Optional[ExperienceLevel] = None
+    salary_range: Optional[str] = None
+    package_lpa: Optional[float] = Field(default=None, ge=0)
+    deadline: Optional[date] = None
+    min_cgpa: Optional[float] = Field(default=None, ge=0, le=10)
+    eligible_branches: Optional[List[str]] = None
+    no_of_openings: Optional[int] = Field(default=None, ge=1)
+    bond_details: Optional[str] = None
     status: Optional[JobStatus] = None
 
 

@@ -1,108 +1,226 @@
-"""Applications router"""
+"""Student applications and recruiter pipeline endpoints."""
 
-from fastapi import APIRouter, HTTPException, Depends, status
-from app.models.application import ApplicationCreate, ApplicationUpdate, ApplicationResponse
-from app.middleware.auth import get_current_user
-from app.database import get_supabase
+from datetime import date
 import logging
 import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.database import get_supabase
+from app.middleware.auth import require_recruiter, require_student
+from app.models.application import ApplicationCreate, ApplicationResponse, ApplicationUpdate
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("/", response_model=list[ApplicationResponse])
-async def list_my_applications(current_user=Depends(get_current_user)):
-    """List all applications for current student"""
+async def list_my_applications(current_user=Depends(require_student)):
+    """List all direct-job applications for the current student."""
     supabase = get_supabase()
     try:
-        profile = supabase.table("student_profiles") \
-            .select("id").eq("user_id", str(current_user.id)).limit(1).execute()
+        profile = (
+            supabase.table("student_profiles")
+            .select("id")
+            .eq("user_id", str(current_user.id))
+            .limit(1)
+            .execute()
+        )
         if not profile.data:
             return []
-        result = supabase.table("applications") \
-            .select("*, jobs(title, company, location, package_lpa)") \
-            .eq("student_id", profile.data[0]["id"]) \
-            .order("applied_at", desc=True) \
+        result = (
+            supabase.table("applications")
+            .select("*, jobs(title,company,location,package_lpa)")
+            .eq("student_id", profile.data[0]["id"])
+            .order("applied_at", desc=True)
             .execute()
+        )
         return result.data or []
-    except Exception as e:
-        logger.error(f"Error fetching applications: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch applications")
+    except Exception as exc:
+        logger.error("Error fetching student applications: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to fetch applications") from exc
 
 
 @router.post("/", response_model=ApplicationResponse, status_code=201)
-async def apply_to_job(data: ApplicationCreate, current_user=Depends(get_current_user)):
-    """Apply to a job"""
+async def apply_to_job(data: ApplicationCreate, current_user=Depends(require_student)):
+    """Apply to an active job after enforcing its declared eligibility."""
     supabase = get_supabase()
     try:
-        profile = supabase.table("student_profiles") \
-            .select("id").eq("user_id", str(current_user.id)).limit(1).execute()
-        if not profile.data:
-            raise HTTPException(status_code=404, detail="Complete your profile first")
-
-        student_id = profile.data[0]["id"]
-
-        # Check if already applied
-        existing = supabase.table("applications") \
-            .select("id") \
-            .eq("student_id", student_id) \
-            .eq("job_id", str(data.job_id)) \
+        profile_result = (
+            supabase.table("student_profiles")
+            .select("id,cgpa,course")
+            .eq("user_id", str(current_user.id))
+            .limit(1)
             .execute()
+        )
+        if not profile_result.data:
+            raise HTTPException(status_code=404, detail="Complete your profile first")
+        profile = profile_result.data[0]
+
+        job_result = (
+            supabase.table("jobs")
+            .select("*")
+            .eq("id", str(data.job_id))
+            .limit(1)
+            .execute()
+        )
+        if not job_result.data or job_result.data[0].get("status") != "active":
+            raise HTTPException(status_code=404, detail="Active job not found")
+        job = job_result.data[0]
+        if job.get("deadline") and date.fromisoformat(job["deadline"]) < date.today():
+            raise HTTPException(status_code=400, detail="The application deadline has passed")
+        if job.get("min_cgpa") is not None and float(profile.get("cgpa") or 0) < float(job["min_cgpa"]):
+            raise HTTPException(
+                status_code=400,
+                detail="Your CGPA does not meet this job's eligibility requirement",
+            )
+        eligible_branches = [branch.lower() for branch in (job.get("eligible_branches") or [])]
+        course = (profile.get("course") or "").lower()
+        if eligible_branches and not any(branch in course for branch in eligible_branches):
+            raise HTTPException(
+                status_code=400,
+                detail="Your course does not meet this job's branch requirement",
+            )
+
+        existing = (
+            supabase.table("applications")
+            .select("id")
+            .eq("student_id", profile["id"])
+            .eq("job_id", str(data.job_id))
+            .limit(1)
+            .execute()
+        )
         if existing.data:
             raise HTTPException(status_code=409, detail="Already applied to this job")
 
-        payload = {
-            "student_id": student_id,
-            "job_id": str(data.job_id),
-            "cover_letter": data.cover_letter,
-            "status": "submitted",
-        }
-        result = supabase.table("applications").insert(payload).execute()
+        result = supabase.table("applications").insert(
+            {
+                "student_id": profile["id"],
+                "job_id": str(data.job_id),
+                "cover_letter": data.cover_letter,
+                "status": "submitted",
+            }
+        ).execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Application creation returned no data")
         return result.data[0]
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error submitting application: {e}")
-        raise HTTPException(status_code=500, detail="Failed to submit application")
+    except Exception as exc:
+        logger.error("Error submitting application: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to submit application") from exc
 
 
 @router.get("/job/{job_id}", response_model=list[ApplicationResponse])
-async def list_applications_for_job(job_id: uuid.UUID, current_user=Depends(get_current_user)):
-    """List all applications for a job (recruiter view)"""
+async def list_applications_for_job(
+    job_id: uuid.UUID,
+    current_user=Depends(require_recruiter),
+):
+    """List applications only when the authenticated recruiter owns the job."""
     supabase = get_supabase()
     try:
-        result = supabase.table("applications") \
-            .select("*, student_profiles(full_name, email, cgpa, skills)") \
-            .eq("job_id", str(job_id)) \
-            .order("created_at", desc=True) \
+        owned_job = (
+            supabase.table("jobs")
+            .select("id")
+            .eq("id", str(job_id))
+            .eq("recruiter_id", str(current_user.id))
+            .limit(1)
             .execute()
+        )
+        if not owned_job.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Job not found or not owned by this recruiter",
+            )
+        result = (
+            supabase.table("applications")
+            .select("*, student_profiles(full_name,email,cgpa,skills)")
+            .eq("job_id", str(job_id))
+            .order("created_at", desc=True)
+            .execute()
+        )
         return result.data or []
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to fetch applications")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to fetch applications for job %s: %s", job_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to fetch applications") from exc
 
 
 @router.put("/{application_id}", response_model=ApplicationResponse)
 async def update_application_status(
     application_id: uuid.UUID,
     data: ApplicationUpdate,
-    current_user=Depends(get_current_user)
+    current_user=Depends(require_recruiter),
 ):
-    """Update application status (recruiter/university)"""
+    """Move a candidate through a recruiter-owned job pipeline."""
     supabase = get_supabase()
     try:
-        result = supabase.table("applications") \
-            .update(data.model_dump(exclude_none=True)) \
-            .eq("id", str(application_id)) \
+        application_result = (
+            supabase.table("applications")
+            .select("id,job_id")
+            .eq("id", str(application_id))
+            .limit(1)
             .execute()
+        )
+        if not application_result.data:
+            raise HTTPException(status_code=404, detail="Application not found")
+        application = application_result.data[0]
+        owned_job = (
+            supabase.table("jobs")
+            .select("id")
+            .eq("id", application["job_id"])
+            .eq("recruiter_id", str(current_user.id))
+            .limit(1)
+            .execute()
+        )
+        if not owned_job.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Application not found or not owned by this recruiter",
+            )
+        update_data = data.model_dump(exclude_none=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No application fields supplied")
+        result = (
+            supabase.table("applications")
+            .update(update_data)
+            .eq("id", str(application_id))
+            .execute()
+        )
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Application not found")
         return result.data[0]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to update application")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to update application %s: %s", application_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to update application") from exc
 
 
 @router.delete("/{application_id}")
-async def withdraw_application(application_id: uuid.UUID, current_user=Depends(get_current_user)):
-    """Withdraw an application"""
+async def withdraw_application(
+    application_id: uuid.UUID,
+    current_user=Depends(require_student),
+):
+    """Allow a student to withdraw only their own application."""
     supabase = get_supabase()
-    supabase.table("applications").update({"status": "withdrawn"}).eq("id", str(application_id)).execute()
+    profile = (
+        supabase.table("student_profiles")
+        .select("id")
+        .eq("user_id", str(current_user.id))
+        .limit(1)
+        .execute()
+    )
+    if not profile.data:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    result = (
+        supabase.table("applications")
+        .update({"status": "withdrawn"})
+        .eq("id", str(application_id))
+        .eq("student_id", profile.data[0]["id"])
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Application not found")
     return {"message": "Application withdrawn"}

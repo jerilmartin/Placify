@@ -12,6 +12,8 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -36,7 +38,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     initSession();
 
-    // Listen for auth state changes (login/logout/token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         if (typeof window !== "undefined") {
@@ -65,6 +66,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (data.session) {
       const appUser = await buildUserFromSession(data.session.user, data.session.access_token);
       setState({ user: appUser, token: data.session.access_token, isLoading: false, isAuthenticated: true });
+
+      // Best-effort: repair missing profile row for accounts stuck without one
+      try {
+        await ensureProfileExists(data.session.access_token, data.session.user);
+      } catch (_) {
+        // Non-fatal
+      }
     }
   };
 
@@ -75,34 +83,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const full_name = (data.full_name as string) || "";
 
     setState((s) => ({ ...s, isLoading: true }));
-    const { data: signUpData, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { role, full_name },
-      },
-    });
-    if (error) {
-      setState((s) => ({ ...s, isLoading: false }));
-      throw new Error(error.message);
-    }
 
-    // After signup, create the role-specific profile row
-    if (signUpData.user) {
-      try {
-        await createProfileRow(signUpData.user.id, role, full_name, email);
-      } catch (err) {
-        console.error("Error creating profile during registration:", err);
+    try {
+      // Step 1: Call backend /api/auth/register — uses service_role key, bypasses RLS
+      const res = await fetch(`${API_URL}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          full_name,
+          role,
+          university: data.university,
+          student_id: data.student_id,
+          course: data.course,
+          graduation_year: data.graduation_year,
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ detail: "Registration failed" }));
+        setState((s) => ({ ...s, isLoading: false }));
+        throw new Error(errBody.detail || "Registration failed");
       }
-    }
 
-    if (signUpData.session) {
-      const appUser = await buildUserFromSession(signUpData.session.user, signUpData.session.access_token);
-      setState({ user: appUser, token: signUpData.session.access_token, isLoading: false, isAuthenticated: true });
-    } else {
-      // Email confirmation required — Supabase didn't auto-sign in
-      setState((s) => ({ ...s, isLoading: false }));
-      throw new Error("CHECK_EMAIL");
+      // Step 2: Sign in immediately to get a Supabase session
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError) {
+        // Email confirmation enabled — backend registered OK but Supabase won't give session yet
+        setState((s) => ({ ...s, isLoading: false }));
+        throw new Error("CHECK_EMAIL");
+      }
+
+      if (signInData.session) {
+        const appUser = await buildUserFromSession(signInData.session.user, signInData.session.access_token);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("access_token", signInData.session.access_token);
+        }
+        setState({ user: appUser, token: signInData.session.access_token, isLoading: false, isAuthenticated: true });
+      } else {
+        setState((s) => ({ ...s, isLoading: false }));
+        throw new Error("CHECK_EMAIL");
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message !== "CHECK_EMAIL") {
+        setState((s) => ({ ...s, isLoading: false }));
+      }
+      throw err;
     }
   };
 
@@ -143,34 +174,23 @@ async function buildUserFromSession(
   };
 }
 
-async function createProfileRow(userId: string, role: UserRole, fullName: string, email: string) {
-  if (role === "student") {
-    const { error } = await supabase.from("student_profiles").upsert({
-      user_id: userId,
-      full_name: fullName,
-      email,
-      profile_completion: 0,
-    }, { onConflict: "user_id" });
-    if (error) console.error("[createProfileRow] student_profiles error:", error.message, error.details);
-  } else if (role === "university") {
-    const { error } = await supabase.from("university_profiles").upsert({
-      user_id: userId,
-      name: fullName,
-      contact_email: email,
-    }, { onConflict: "user_id" });
-    if (error) console.error("[createProfileRow] university_profiles error:", error.message, error.details);
-  } else if (role === "recruiter") {
-    const { error } = await supabase.from("recruiter_profiles").upsert({
-      user_id: userId,
-      company_name: fullName,
-      contact_email: email,
-    }, { onConflict: "user_id" });
-    if (error) console.error("[createProfileRow] recruiter_profiles error:", error.message, error.details);
-  } else if (role === "mentor") {
-    const { error } = await supabase.from("mentor_profiles").upsert({
-      user_id: userId,
-      full_name: fullName,
-    }, { onConflict: "user_id" });
-    if (error) console.error("[createProfileRow] mentor_profiles error:", error.message, error.details);
-  }
+/**
+ * Called after login to repair accounts that are missing their profile row
+ * (e.g. accounts created before the RLS fix). The backend uses service_role.
+ */
+async function ensureProfileExists(
+  accessToken: string,
+  supaUser: { id: string; email?: string; user_metadata?: Record<string, unknown> }
+) {
+  const role = (supaUser.user_metadata?.role as UserRole) || "student";
+  const full_name = (supaUser.user_metadata?.full_name as string) || supaUser.email || "";
+
+  await fetch(`${API_URL}/api/auth/repair-profile`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ role, full_name, email: supaUser.email }),
+  });
 }

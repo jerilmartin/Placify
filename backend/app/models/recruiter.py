@@ -19,11 +19,19 @@ class RecruiterProfileBase(BaseModel):
 
 
 class RecruiterProfileCreate(RecruiterProfileBase):
-    user_id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
 
 
-class RecruiterProfileUpdate(RecruiterProfileBase):
-    pass
+class RecruiterProfileUpdate(BaseModel):
+    company_name: Optional[str] = None
+    designation: Optional[str] = None
+    company_website: Optional[str] = None
+    company_description: Optional[str] = None
+    industry: Optional[str] = None
+    company_size: Optional[str] = None
+    headquarters: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
 
 
 class RecruiterProfileResponse(RecruiterProfileBase):

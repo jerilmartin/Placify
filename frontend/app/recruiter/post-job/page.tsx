@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { jobsApi } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { jobsApi, recruitersApi } from "@/lib/api";
 import { toast } from "sonner";
 import { PlusCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -14,6 +14,7 @@ const EXP_LEVELS = ["entry","mid","senior"];
 export default function PostJobPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [verified, setVerified] = useState<boolean | null>(null);
   const [skillInput, setSkillInput] = useState("");
   const [form, setForm] = useState({
     title: "", company: "", location: "", description: "",
@@ -22,6 +23,15 @@ export default function PostJobPage() {
     salary_range: "", package_lpa: "", deadline: "",
     min_cgpa: "", no_of_openings: "",
   });
+
+  useEffect(() => {
+    recruitersApi.getProfile()
+      .then(({ data }) => {
+        setVerified(Boolean(data.verified));
+        setForm((current) => ({ ...current, company: data.company_name || current.company }));
+      })
+      .catch(() => setVerified(false));
+  }, []);
 
   const addSkill = () => {
     const s = skillInput.trim();
@@ -36,6 +46,7 @@ export default function PostJobPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title || !form.company) { toast.error("Title and Company are required"); return; }
+    if (!verified) { toast.error("Your recruiter profile must be verified before posting jobs"); return; }
     setLoading(true);
     if (isDemoMode()) {
       await new Promise(r => setTimeout(r, 1000));
@@ -72,6 +83,11 @@ export default function PostJobPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="glass p-6 space-y-4">
+        {verified === false && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+            Job publishing is locked until a university placement representative verifies your company.
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4">
           {field("Job Title *", "title", "text", "e.g. Software Engineer")}
           {field("Company *", "company", "text", "e.g. TCS, Infosys")}
@@ -124,7 +140,7 @@ export default function PostJobPage() {
           </div>
         </div>
 
-        <button type="submit" disabled={loading}
+        <button type="submit" disabled={loading || verified !== true}
           className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 font-semibold text-white hover:opacity-90 transition-all disabled:opacity-60 flex items-center justify-center gap-2">
           {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Posting…</> : <><PlusCircle className="w-4 h-4" /> Post Job</>}
         </button>

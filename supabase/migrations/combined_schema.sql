@@ -6,7 +6,7 @@
 -- ── Student Profiles ─────────────────────────────────────────
 CREATE TABLE student_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   student_id TEXT UNIQUE,
   full_name TEXT,
   email TEXT,
@@ -16,8 +16,8 @@ CREATE TABLE student_profiles (
   university TEXT,
   course TEXT,
   graduation_year INTEGER,
-  cgpa DECIMAL(3,2),
-  active_backlogs INTEGER DEFAULT 0,
+  cgpa DECIMAL(4,2) CHECK (cgpa IS NULL OR cgpa BETWEEN 0 AND 10),
+  active_backlogs INTEGER DEFAULT 0 CHECK (active_backlogs >= 0),
   skills TEXT[],
   github_url TEXT,
   linkedin_url TEXT,
@@ -34,7 +34,7 @@ CREATE TABLE student_profiles (
 -- ── University Profiles ──────────────────────────────────────
 CREATE TABLE university_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   location TEXT,
   website TEXT,
@@ -51,7 +51,7 @@ CREATE TABLE university_profiles (
 -- ── Recruiter Profiles ───────────────────────────────────────
 CREATE TABLE recruiter_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   company_name TEXT NOT NULL,
   designation TEXT,
   company_website TEXT,
@@ -69,7 +69,7 @@ CREATE TABLE recruiter_profiles (
 -- ── Mentor Profiles ──────────────────────────────────────────
 CREATE TABLE mentor_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name TEXT NOT NULL,
   designation TEXT,
   company TEXT,
@@ -103,6 +103,32 @@ CREATE TABLE placement_drives (
   total_selected INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── Recruiter Campus Drive Requests ──────────────────────────
+CREATE TABLE drive_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recruiter_id UUID NOT NULL REFERENCES recruiter_profiles(id) ON DELETE CASCADE,
+  university_id UUID NOT NULL REFERENCES university_profiles(id) ON DELETE CASCADE,
+  company_name TEXT NOT NULL,
+  title TEXT NOT NULL,
+  role TEXT NOT NULL,
+  description TEXT,
+  eligibility JSONB NOT NULL DEFAULT '{}',
+  drive_date DATE,
+  registration_deadline DATE,
+  package_lpa DECIMAL(7,2),
+  location TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','changes_requested','approved','rejected','cancelled')),
+  review_notes TEXT,
+  reviewed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reviewed_at TIMESTAMPTZ,
+  placement_drive_id UUID UNIQUE REFERENCES placement_drives(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (registration_deadline IS NULL OR drive_date IS NULL OR registration_deadline <= drive_date)
 );
 
 -- ── Jobs ─────────────────────────────────────────────────────
@@ -152,9 +178,10 @@ CREATE TABLE applications (
   student_id UUID REFERENCES student_profiles(id) ON DELETE CASCADE,
   job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,
   cover_letter TEXT,
-  status TEXT DEFAULT 'submitted' CHECK (status IN ('submitted','reviewed','shortlisted','interviewed','offered','rejected')),
+  status TEXT DEFAULT 'submitted' CHECK (status IN ('submitted','reviewed','shortlisted','interviewed','offered','accepted','rejected','withdrawn')),
   next_step TEXT,
   next_step_date DATE,
+  recruiter_notes TEXT,
   applied_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -296,6 +323,8 @@ CREATE INDEX idx_applications_job ON applications(job_id);
 CREATE INDEX idx_applications_status ON applications(status);
 CREATE INDEX idx_drives_university ON placement_drives(university_id);
 CREATE INDEX idx_drives_status ON placement_drives(status);
+CREATE INDEX idx_drive_requests_recruiter ON drive_requests(recruiter_id, created_at DESC);
+CREATE INDEX idx_drive_requests_university_status ON drive_requests(university_id, status, created_at DESC);
 CREATE INDEX idx_drive_apps_drive ON drive_applications(drive_id);
 CREATE INDEX idx_drive_apps_student ON drive_applications(student_id);
 CREATE INDEX idx_matches_student ON job_matches(student_id);
@@ -321,6 +350,7 @@ ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resumes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE placement_drives ENABLE ROW LEVEL SECURITY;
+ALTER TABLE drive_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE drive_applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE job_matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE interviews ENABLE ROW LEVEL SECURITY;
@@ -337,35 +367,66 @@ ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 
 -- Profiles: users manage their own (SELECT, INSERT, UPDATE)
 CREATE POLICY "Own student profile" ON student_profiles FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "Public student profile view" ON student_profiles FOR SELECT USING (true);
 
 CREATE POLICY "Own university profile" ON university_profiles FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 CREATE POLICY "Public university profile view" ON university_profiles FOR SELECT USING (true);
 
 CREATE POLICY "Own recruiter profile" ON recruiter_profiles FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "Public recruiter profile view" ON recruiter_profiles FOR SELECT USING (true);
+CREATE POLICY "View verified recruiter profiles" ON recruiter_profiles FOR SELECT USING (verified = true);
 
 CREATE POLICY "Own mentor profile" ON mentor_profiles FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 CREATE POLICY "View verified mentors" ON mentor_profiles FOR SELECT USING (verified = true);
 
--- Jobs: everyone reads active, recruiters manage own
-CREATE POLICY "View active jobs" ON jobs FOR SELECT USING (status = 'active');
-CREATE POLICY "Recruiters manage jobs" ON jobs FOR ALL USING (recruiter_id = auth.uid()) WITH CHECK (recruiter_id = auth.uid());
+-- Verification changes go through backend service-role endpoints only.
+REVOKE UPDATE ON recruiter_profiles FROM authenticated;
+REVOKE UPDATE ON university_profiles FROM authenticated;
 
--- Drives: public read, university manages own
-CREATE POLICY "View all drives" ON placement_drives FOR SELECT USING (true);
-CREATE POLICY "University manages drives" ON placement_drives FOR ALL 
+-- Jobs: everyone reads active, recruiters manage their own
+CREATE POLICY "View active jobs" ON jobs FOR SELECT USING (status = 'active');
+CREATE POLICY "Recruiters manage jobs" ON jobs FOR ALL
+  USING (recruiter_id = auth.uid())
+  WITH CHECK (recruiter_id = auth.uid());
+
+-- Drives: students see their university's drives; universities manage their own.
+CREATE OR REPLACE FUNCTION student_belongs_to_university(p_university_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM student_profiles AS student
+    JOIN university_profiles AS university
+      ON LOWER(BTRIM(student.university)) = LOWER(BTRIM(university.name))
+    WHERE student.user_id = auth.uid()
+      AND university.id = p_university_id
+  );
+$function$;
+REVOKE ALL ON FUNCTION student_belongs_to_university(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION student_belongs_to_university(UUID) TO authenticated, service_role;
+
+CREATE POLICY "Students view university drives" ON placement_drives FOR SELECT
+  USING (student_belongs_to_university(university_id));
+CREATE POLICY "University manages drives" ON placement_drives FOR ALL
   USING (university_id IN (SELECT id FROM university_profiles WHERE user_id = auth.uid()))
   WITH CHECK (university_id IN (SELECT id FROM university_profiles WHERE user_id = auth.uid()));
 
--- Student-scoped tables
-CREATE POLICY "Own resumes" ON resumes FOR ALL
-  USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
-  WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+CREATE POLICY "Recruiter views own drive requests" ON drive_requests FOR SELECT
+  USING (recruiter_id IN (SELECT id FROM recruiter_profiles WHERE user_id = auth.uid()));
+CREATE POLICY "University views received drive requests" ON drive_requests FOR SELECT
+  USING (university_id IN (SELECT id FROM university_profiles WHERE user_id = auth.uid()));
+REVOKE INSERT, UPDATE, DELETE ON drive_requests FROM anon, authenticated;
+GRANT SELECT ON drive_requests TO authenticated;
 
+-- Students own their applications; recruiters may manage applications to owned jobs.
 CREATE POLICY "Own applications" ON applications FOR ALL
   USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
   WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+CREATE POLICY "Recruiters manage job applications" ON applications FOR ALL
+  USING (job_id IN (SELECT id FROM jobs WHERE recruiter_id = auth.uid()))
+  WITH CHECK (job_id IN (SELECT id FROM jobs WHERE recruiter_id = auth.uid()));
 
 CREATE POLICY "Own drive apps" ON drive_applications FOR ALL
   USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
@@ -403,3 +464,76 @@ CREATE POLICY "Mentor sees sessions" ON mentor_sessions FOR ALL
   USING (mentor_id IN (SELECT id FROM mentor_profiles WHERE user_id = auth.uid()));
 CREATE POLICY "Student sees sessions" ON mentor_sessions FOR ALL
   USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+
+-- Atomic university review: an approval and its placement drive are committed
+-- together, so students never see a partially approved request.
+CREATE OR REPLACE FUNCTION review_drive_request(
+  p_request_id UUID,
+  p_reviewer_user_id UUID,
+  p_action TEXT,
+  p_notes TEXT DEFAULT NULL
+)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_request drive_requests%ROWTYPE;
+  v_drive_id UUID;
+BEGIN
+  SELECT * INTO v_request
+  FROM drive_requests
+  WHERE id = p_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN RAISE EXCEPTION 'Drive request not found'; END IF;
+  IF v_request.status <> 'pending' THEN
+    RAISE EXCEPTION 'Only pending drive requests can be reviewed';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM university_profiles
+    WHERE id = v_request.university_id
+      AND user_id = p_reviewer_user_id
+      AND verified = TRUE
+  ) THEN
+    RAISE EXCEPTION 'Reviewer is not authorized for this university';
+  END IF;
+
+  IF p_action = 'approve' THEN
+    INSERT INTO placement_drives (
+      university_id, title, company_name, description, eligibility,
+      drive_date, registration_deadline, package_lpa, role, location, status
+    ) VALUES (
+      v_request.university_id, v_request.title, v_request.company_name,
+      v_request.description, v_request.eligibility, v_request.drive_date,
+      v_request.registration_deadline, v_request.package_lpa,
+      v_request.role, v_request.location, 'upcoming'
+    ) RETURNING id INTO v_drive_id;
+
+    UPDATE drive_requests SET
+      status = 'approved', review_notes = NULLIF(BTRIM(p_notes), ''),
+      reviewed_by = p_reviewer_user_id, reviewed_at = NOW(),
+      placement_drive_id = v_drive_id, updated_at = NOW()
+    WHERE id = p_request_id;
+  ELSIF p_action IN ('reject', 'request_changes') THEN
+    IF NULLIF(BTRIM(p_notes), '') IS NULL THEN
+      RAISE EXCEPTION 'Review notes are required';
+    END IF;
+    UPDATE drive_requests SET
+      status = CASE WHEN p_action = 'reject' THEN 'rejected' ELSE 'changes_requested' END,
+      review_notes = BTRIM(p_notes), reviewed_by = p_reviewer_user_id,
+      reviewed_at = NOW(), updated_at = NOW()
+    WHERE id = p_request_id;
+  ELSE
+    RAISE EXCEPTION 'Invalid review action';
+  END IF;
+
+  RETURN v_drive_id;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION review_drive_request(UUID, UUID, TEXT, TEXT)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION review_drive_request(UUID, UUID, TEXT, TEXT)
+  TO service_role;

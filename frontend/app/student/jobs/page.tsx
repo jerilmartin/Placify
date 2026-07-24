@@ -38,6 +38,40 @@ interface EligibilityResult {
   reason: string;
 }
 
+const BRANCH_ALIASES: Record<string, string[]> = {
+  cs: ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
+  cse: ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
+  "computer science": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
+  it: ["it", "information technology", "info tech"],
+  "information technology": ["it", "information technology", "info tech"],
+  ece: ["ece", "electronics", "ec", "telecommunication", "communication"],
+  electronics: ["ece", "electronics", "ec", "telecommunication", "communication"],
+  eee: ["eee", "electrical", "ee"],
+  electrical: ["eee", "electrical", "ee"],
+  mech: ["mech", "mechanical"],
+  mechanical: ["mech", "mechanical"],
+  civil: ["civil"],
+  ai: ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
+  ml: ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
+  "data science": ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
+};
+
+function matchesBranch(studentCourse: string, requiredBranch: string): boolean {
+  const courseNorm = studentCourse.toLowerCase().trim();
+  const branchNorm = requiredBranch.toLowerCase().trim();
+
+  // Direct substring check
+  if (courseNorm.includes(branchNorm) || branchNorm.includes(courseNorm)) return true;
+
+  // Synonym check
+  const aliases = BRANCH_ALIASES[branchNorm];
+  if (aliases) {
+    return aliases.some((alias) => courseNorm.includes(alias));
+  }
+
+  return false;
+}
+
 function checkEligibility(drive: Drive, profile: StudentProfile | null): EligibilityResult {
   if (!profile) return { eligible: false, reason: "Complete your profile first" };
   const { eligibility } = drive;
@@ -52,8 +86,8 @@ function checkEligibility(drive: Drive, profile: StudentProfile | null): Eligibi
     if (backlogs > eligibility.max_backlogs) return { eligible: false, reason: `Max ${eligibility.max_backlogs} backlog(s) allowed (yours: ${backlogs})` };
   }
   if (eligibility.eligible_branches?.length) {
-    const course = (profile.course || "").toLowerCase();
-    const branchMatch = eligibility.eligible_branches.some((b) => course.includes(b.toLowerCase()));
+    const course = profile.course || "";
+    const branchMatch = eligibility.eligible_branches.some((b) => matchesBranch(course, b));
     if (!branchMatch) return { eligible: false, reason: `Branch not eligible. Allowed: ${eligibility.eligible_branches.join(", ")}` };
   }
   return { eligible: true, reason: "" };
