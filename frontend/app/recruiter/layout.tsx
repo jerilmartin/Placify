@@ -6,12 +6,22 @@ import { useRouter } from "next/navigation";
 import { AppSidebar, type PortalRole } from "@/components/app-sidebar";
 import { Topbar } from "@/components/topbar";
 import { CommandMenu } from "@/components/command-menu";
+import { supabase } from "@/lib/supabase";
+
+interface SidebarInfo {
+  name: string;
+  email: string;
+  line2?: string;
+  line3?: string;
+  institution?: string;
+}
 
 export default function RecruiterLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, isAuthenticated, isLoading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [sidebarInfo, setSidebarInfo] = useState<SidebarInfo | null>(null);
   const role: PortalRole = "recruiter";
 
   useEffect(() => {
@@ -20,6 +30,33 @@ export default function RecruiterLayout({ children }: { children: React.ReactNod
       router.replace("/login");
     }
   }, [isLoading, isAuthenticated, user, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("recruiter_profiles")
+      .select("company_name, designation, contact_email, industry")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setSidebarInfo({
+            name: user.full_name || user.email,
+            email: data.contact_email || user.email,
+            institution: data.company_name || "TechCorp Solutions",
+            line2: data.designation || "Talent Acquisition",
+            line3: data.industry || "Technology",
+          });
+        } else {
+          setSidebarInfo({
+            name: user.full_name || user.email,
+            email: user.email,
+            institution: "TechCorp Solutions",
+            line2: "Recruiter",
+          });
+        }
+      });
+  }, [user]);
 
   if (isLoading) {
     return (
@@ -38,6 +75,7 @@ export default function RecruiterLayout({ children }: { children: React.ReactNod
         collapsed={collapsed}
         onToggle={() => setCollapsed((v) => !v)}
         onOpenCommand={() => setCmdOpen(true)}
+        userInfo={sidebarInfo ?? { name: user?.full_name || user?.email || "—", email: user?.email || "" }}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onOpenCommand={() => setCmdOpen(true)} />

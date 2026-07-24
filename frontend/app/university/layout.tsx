@@ -6,12 +6,22 @@ import { useRouter } from "next/navigation";
 import { AppSidebar, type PortalRole } from "@/components/app-sidebar";
 import { Topbar } from "@/components/topbar";
 import { CommandMenu } from "@/components/command-menu";
+import { supabase } from "@/lib/supabase";
+
+interface SidebarInfo {
+  name: string;
+  email: string;
+  line2?: string;
+  line3?: string;
+  institution?: string;
+}
 
 export default function UniversityLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, isAuthenticated, isLoading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [sidebarInfo, setSidebarInfo] = useState<SidebarInfo | null>(null);
   const role: PortalRole = "university";
 
   useEffect(() => {
@@ -20,6 +30,32 @@ export default function UniversityLayout({ children }: { children: React.ReactNo
       router.replace("/login");
     }
   }, [isLoading, isAuthenticated, user, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("university_profiles")
+      .select("name, contact_email")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setSidebarInfo({
+            name: data.name || user.full_name || user.email,
+            email: data.contact_email || user.email,
+            institution: data.name,
+            line2: "Central Placement Office",
+            line3: "Season 2026 · Live",
+          });
+        } else {
+          setSidebarInfo({
+            name: user.full_name || user.email,
+            email: user.email,
+            line2: "Placement Office",
+          });
+        }
+      });
+  }, [user]);
 
   if (isLoading) {
     return (
@@ -38,6 +74,7 @@ export default function UniversityLayout({ children }: { children: React.ReactNo
         collapsed={collapsed}
         onToggle={() => setCollapsed((v) => !v)}
         onOpenCommand={() => setCmdOpen(true)}
+        userInfo={sidebarInfo ?? { name: user?.full_name || user?.email || "—", email: user?.email || "" }}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onOpenCommand={() => setCmdOpen(true)} />

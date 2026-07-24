@@ -1,17 +1,18 @@
 "use client";
 
-
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
-
-
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 
 const packageDist = [
-  { r: "5–10L", n: 320 },
-  { r: "10–20L", n: 512 },
-  { r: "20–35L", n: 288 },
-  { r: "35–60L", n: 96 },
-  { r: "60L+", n: 28 },
+  { r: "5–10L", n: 142 },
+  { r: "10–20L", n: 268 },
+  { r: "20–35L", n: 185 },
+  { r: "35–60L", n: 54 },
+  { r: "60L+", n: 12 },
 ];
 
 const sectors = [
@@ -23,40 +24,69 @@ const sectors = [
 ];
 
 const branches = [
-  { b: "CSE", placed: 96, avg: 42 },
-  { b: "ECE", placed: 92, avg: 34 },
-  { b: "EEE", placed: 88, avg: 28 },
-  { b: "Mech", placed: 82, avg: 22 },
-  { b: "Civil", placed: 78, avg: 18 },
-  { b: "Chem", placed: 84, avg: 24 },
+  { b: "CSE", placed: 94, avg: 18.5 },
+  { b: "ECE", placed: 88, avg: 14.2 },
+  { b: "IT", placed: 91, avg: 16.0 },
+  { b: "EEE", placed: 82, avg: 11.5 },
+  { b: "Mech", placed: 75, avg: 9.2 },
 ];
 
 export default function UniversityPage() {
+  const { user } = useAuth();
+  const [uniName, setUniName] = useState("Your University");
+  const [stats, setStats] = useState({ totalDrives: 0, activeDrives: 0, totalRegistered: 0, totalSelected: 0 });
+
+  useEffect(() => {
+    if (!user) return;
+    const load = async () => {
+      const { data: up } = await supabase
+        .from("university_profiles")
+        .select("id, name")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (up?.name) setUniName(up.name);
+      if (up?.id) {
+        const { data: drives } = await supabase
+          .from("placement_drives")
+          .select("status, total_registered, total_selected")
+          .eq("university_id", up.id);
+        if (drives) {
+          setStats({
+            totalDrives: drives.length,
+            activeDrives: drives.filter(d => d.status === "active" || d.status === "upcoming").length,
+            totalRegistered: drives.reduce((s, d) => s + (d.total_registered || 0), 0),
+            totalSelected: drives.reduce((s, d) => s + (d.total_selected || 0), 0),
+          });
+        }
+      }
+    };
+    load();
+  }, [user]);
+
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
       <div className="mb-6 flex items-end justify-between">
         <div>
-          <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Placement Cell · IIT Bombay</div>
+          <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Placement Cell · {uniName}</div>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-[28px]">Season 2025–26</h1>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm">Export report</Button>
-          <Button size="sm">New drive</Button>
+          <Button size="sm" asChild><Link href="/university/drives">New drive</Link></Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { l: "Placement %", v: "89.4%", d: "+3.1 vs. 2024" },
-          { l: "Avg. package", v: "₹34.2L", d: "+₹4.1L" },
-          { l: "Highest", v: "₹1.42Cr", d: "Stripe" },
-          { l: "Offers", v: "1,244", d: "868 unique" },
-          { l: "Recruiters", v: "312", d: "42 new" },
+          { l: "Total Drives", v: String(stats.totalDrives), d: `${stats.activeDrives} active/upcoming` },
+          { l: "Registered", v: String(stats.totalRegistered), d: "across all drives" },
+          { l: "Selected", v: String(stats.totalSelected), d: "students placed" },
+          { l: "Placement %", v: stats.totalRegistered > 0 ? `${Math.round((stats.totalSelected / stats.totalRegistered) * 100)}%` : "—", d: "of registered" },
         ].map((k) => (
           <div key={k.l} className="rounded-xl border border-border bg-surface p-4">
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{k.l}</div>
             <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{k.v}</div>
-            <div className="mt-1 text-[11px] text-success">{k.d}</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">{k.d}</div>
           </div>
         ))}
       </div>

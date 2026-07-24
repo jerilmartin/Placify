@@ -98,6 +98,16 @@ export const recruitersApi = {
   createProfile: (data: Record<string, unknown>) => apiClient.post("/api/recruiters/profile", data),
   updateProfile: (data: Record<string, unknown>) => apiClient.put("/api/recruiters/profile", data),
   getCandidates: (jobId: string) => apiClient.get("/api/recruiters/candidates", { params: { job_id: jobId } }),
+  getJobs: () => apiClient.get("/api/recruiters/jobs"),
+  getOverview: () => apiClient.get("/api/recruiters/overview"),
+  listUniversities: () => apiClient.get("/api/recruiters/universities"),
+  listDriveRequests: () => apiClient.get("/api/recruiters/drive-requests"),
+  createDriveRequest: (data: Record<string, unknown>) =>
+    apiClient.post("/api/recruiters/drive-requests", data),
+  resubmitDriveRequest: (id: string, data: Record<string, unknown>) =>
+    apiClient.put(`/api/recruiters/drive-requests/${id}/resubmit`, data),
+  cancelDriveRequest: (id: string) =>
+    apiClient.delete(`/api/recruiters/drive-requests/${id}`),
   aiSearch: (query: string) => apiClient.post("/api/recruiters/ai-search", null, { params: { query } }),
 };
 
@@ -109,6 +119,13 @@ export const universitiesApi = {
   createDrive: (data: Record<string, unknown>) => apiClient.post("/api/universities/drives", data),
   getEligibleStudents: (driveId: string) => apiClient.get(`/api/universities/drives/${driveId}/eligible-students`),
   getAnalytics: () => apiClient.get("/api/universities/analytics"),
+  listRecruiters: () => apiClient.get("/api/universities/recruiters"),
+  setRecruiterVerification: (id: string, verified: boolean) =>
+    apiClient.put(`/api/universities/recruiters/${id}/verification`, null, { params: { verified } }),
+  listDriveRequests: (status?: string) =>
+    apiClient.get("/api/universities/drive-requests", { params: status ? { status_filter: status } : undefined }),
+  reviewDriveRequest: (id: string, action: "approve" | "reject" | "request_changes", notes?: string) =>
+    apiClient.put(`/api/universities/drive-requests/${id}/review`, { action, notes }),
 };
 
 // ── Mentors ───────────────────────────────────────────────────────────────────

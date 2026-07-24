@@ -55,7 +55,7 @@ class EligibilityCriteria(BaseModel):
 class PlacementDriveCreate(BaseModel):
     title: str
     company_name: str
-    university_id: uuid.UUID
+    university_id: Optional[uuid.UUID] = None
     description: Optional[str] = None
     eligibility: EligibilityCriteria = EligibilityCriteria()
     drive_date: Optional[date] = None
