@@ -18,6 +18,8 @@ export default function RecruiterCandidatesPage() {
   const [jobId, setJobId] = useState("");
   const [candidates, setCandidates] = useState<CandidateApplication[]>([]);
   const [query, setQuery] = useState("");
+  const [aiResults, setAiResults] = useState<CandidateApplication[] | null>(null);
+  const [aiSearching, setAiSearching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
 
@@ -35,11 +37,36 @@ export default function RecruiterCandidatesPage() {
 
   useEffect(() => {
     if (!jobId) return;
+    setAiResults(null);
     recruitersApi.getCandidates(jobId)
       .then(({ data }) => setCandidates(data))
       .catch(() => toast.error("Could not load candidates for this job"))
       .finally(() => setLoading(false));
   }, [jobId]);
+
+  const runAiSearch = async () => {
+    if (!query.trim()) {
+      setAiResults(null);
+      return;
+    }
+    setAiSearching(true);
+    try {
+      const { data } = await recruitersApi.aiSearch(query);
+      // Map the returned student_profiles into the same CandidateApplication shape for display
+      const mapped = (data.students || []).map((s: any) => ({
+        id: s.id,
+        status: "submitted" as ApplicationStatus,
+        match_score: null,
+        student_profiles: s,
+      }));
+      setAiResults(mapped);
+      toast.success(`AI found ${mapped.length} matching candidates`);
+    } catch {
+      toast.error("AI search failed — ensure your recruiter profile is verified");
+    } finally {
+      setAiSearching(false);
+    }
+  };
 
   const updateCandidate = async (
     candidate: CandidateApplication,
@@ -58,7 +85,9 @@ export default function RecruiterCandidatesPage() {
     }
   };
 
-  const visible = candidates.filter((candidate) => {
+  // If AI search returned results, show those; otherwise fall back to client-side filter on job candidates
+  const visible = aiResults ?? candidates.filter((candidate) => {
+    if (!query) return true;
     const student = candidate.student_profiles;
     const haystack = `${student?.full_name} ${student?.email} ${student?.university} ${(student?.skills || []).join(" ")}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
@@ -72,15 +101,35 @@ export default function RecruiterCandidatesPage() {
         <p className="mt-1 text-sm text-muted-foreground">Applicants are isolated to jobs owned by your recruiter account.</p>
       </div>
 
-      <div className="mb-5 grid gap-3 rounded-xl border border-border bg-surface p-4 md:grid-cols-[280px_1fr]">
-        <select value={jobId} onChange={(event) => setJobId(event.target.value)} className="h-10 rounded-md border border-border bg-background px-3 text-sm">
+      <div className="mb-5 grid gap-3 rounded-xl border border-border bg-surface p-4 md:grid-cols-[280px_1fr_auto]">
+        <select value={jobId} onChange={(event) => { setJobId(event.target.value); setAiResults(null); setQuery(""); }} className="h-10 rounded-md border border-border bg-background px-3 text-sm">
           {jobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
         </select>
         <div className="relative">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, university, email, or skill" className="pl-9" />
+          <Input
+            value={query}
+            onChange={(event) => { setQuery(event.target.value); if (!event.target.value) setAiResults(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter") runAiSearch(); }}
+            placeholder="AI search: e.g. React devs with CGPA > 8.0"
+            className="pl-9"
+          />
         </div>
+        <Button onClick={runAiSearch} disabled={aiSearching || !query.trim()} size="default" className="gap-2">
+          {aiSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundSearch className="h-4 w-4" />}
+          AI Search
+        </Button>
       </div>
+
+      {aiResults !== null && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 text-sm">
+          <UserRoundSearch className="h-4 w-4 text-primary" />
+          <span>Showing <strong>{aiResults.length}</strong> AI-matched candidates for: <em>&ldquo;{query}&rdquo;</em></span>
+          <button className="ml-auto text-xs text-muted-foreground hover:text-foreground" onClick={() => { setAiResults(null); setQuery(""); }}>
+            Clear
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
