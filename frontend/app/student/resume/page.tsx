@@ -6,12 +6,14 @@ import { UploadCloud, FileText, Sparkles, Download, Share2, Check, AlertCircle, 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { resumesApi } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function ResumePage() {
   const [loading, setLoading] = useState(false);
   const [activeResume, setActiveResume] = useState<any>(null);
   const [resumesList, setResumesList] = useState<any[]>([]);
   const [atsScore, setAtsScore] = useState<any>(null);
+  const [improving, setImproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +47,37 @@ export default function ResumePage() {
   useEffect(() => {
     fetchResumes();
   }, []);
+
+  const handleImprove = async () => {
+    const resumeId = activeResume?.id || activeResume?.resume_id;
+    if (!resumeId) { toast.error("Please upload a resume first"); return; }
+    setImproving(true);
+    try {
+      const res = await resumesApi.improve(resumeId);
+      const data = res.data;
+      // Merge Gemini improvement data into ATS score state
+      setAtsScore((prev: any) => ({
+        ...prev,
+        overall_score: data.ats_score ?? prev?.overall_score ?? 0,
+        issues: data.issues ?? [],
+        tips: data.keyword_suggestions ?? [],
+        specific_improvements: data.specific_improvements ?? [],
+        category_scores: data.section_scores
+          ? {
+              keyword_match: data.section_scores.skills ?? prev?.category_scores?.keyword_match ?? 0,
+              formatting_structure: data.section_scores.summary ?? prev?.category_scores?.formatting_structure ?? 0,
+              readability: data.section_scores.education ?? prev?.category_scores?.readability ?? 0,
+              action_verbs_impact: data.section_scores.experience ?? prev?.category_scores?.action_verbs_impact ?? 0,
+            }
+          : prev?.category_scores,
+      }));
+      toast.success("Gemini AI improvement suggestions loaded!");
+    } catch {
+      toast.error("Could not load AI improvements. Make sure backend and Gemini API are running.");
+    } finally {
+      setImproving(false);
+    }
+  };
 
   const handleFileUpload = async (file: File) => {
     if (!file) return;
@@ -120,7 +153,10 @@ export default function ResumePage() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" disabled={!activeResume}><Download className="mr-1.5 h-3.5 w-3.5" /> Download</Button>
           <Button variant="outline" size="sm" disabled={!activeResume}><Share2 className="mr-1.5 h-3.5 w-3.5" /> Share</Button>
-          <Button size="sm" disabled={!activeResume}><Sparkles className="mr-1.5 h-3.5 w-3.5" /> Improve with AI</Button>
+          <Button size="sm" disabled={!activeResume || improving} onClick={handleImprove}>
+            {improving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
+            {improving ? "Analyzing..." : "Improve with AI"}
+          </Button>
         </div>
       </div>
 
