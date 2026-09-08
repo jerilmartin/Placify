@@ -35,8 +35,22 @@ async def start_interview(data: InterviewCreate, current_user=Depends(get_curren
         # Get job context if provided
         job_context = None
         if data.job_id:
-            job = supabase.table("jobs").select("*").eq("id", str(data.job_id)).single().execute()
-            job_context = job.data
+            job_res = supabase.table("jobs").select("*").eq("id", str(data.job_id)).limit(1).execute()
+            if job_res.data and len(job_res.data) > 0:
+                job_context = job_res.data[0]
+            else:
+                drive_res = supabase.table("placement_drives").select("*").eq("id", str(data.job_id)).limit(1).execute()
+                if drive_res.data and len(drive_res.data) > 0:
+                    d = drive_res.data[0]
+                    eligibility = d.get("eligibility") or d.get("eligibility_criteria") or {}
+                    skills = eligibility.get("required_skills") or eligibility.get("eligible_branches") or []
+                    job_context = {
+                        "id": d.get("id"),
+                        "title": d.get("role") or d.get("title") or "Software Engineer",
+                        "company": d.get("company_name") or "Tech Company",
+                        "skills_required": skills if isinstance(skills, list) else [str(skills)],
+                        "description": d.get("description", ""),
+                    }
 
         # Generate first question with Gemini
         questions = await generate_interview_questions(
