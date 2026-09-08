@@ -28,14 +28,23 @@ async def list_my_applications(current_user=Depends(require_student)):
         )
         if not profile.data:
             return []
-        result = (
-            supabase.table("applications")
-            .select("*, jobs(title,company,location,package_lpa)")
-            .eq("student_id", profile.data[0]["id"])
-            .order("applied_at", desc=True)
-            .execute()
-        )
-        return result.data or []
+        try:
+            result = (
+                supabase.table("applications")
+                .select("*, jobs(title,company,location,package_lpa)")
+                .eq("student_id", profile.data[0]["id"])
+                .order("created_at", desc=True)
+                .execute()
+            )
+            return result.data or []
+        except Exception:
+            result = (
+                supabase.table("applications")
+                .select("*, jobs(title,company,location,package_lpa)")
+                .eq("student_id", profile.data[0]["id"])
+                .execute()
+            )
+            return result.data or []
     except Exception as exc:
         logger.error("Error fetching student applications: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to fetch applications") from exc

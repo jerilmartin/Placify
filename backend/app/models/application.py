@@ -39,9 +39,9 @@ class ApplicationResponse(BaseModel):
     next_step: Optional[str] = None
     next_step_date: Optional[date] = None
     recruiter_notes: Optional[str] = None
-    applied_at: datetime
-    created_at: datetime
-    updated_at: datetime
+    applied_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import type {
-  StudentProfile, Job, JobMatch, Application, Interview, InterviewFeedback,
+  StudentProfile, Job, JobMatch, Application, InterviewFeedback,
   PlacementDrive, Notification, StudentDashboardStats, ProfileStrength,
   PlacementRisk, Resume,
 } from "./types";
