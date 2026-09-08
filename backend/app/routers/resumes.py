@@ -105,16 +105,25 @@ async def list_resumes(current_user=Depends(get_current_user)):
     supabase = get_supabase()
     try:
         profile = supabase.table("student_profiles") \
-            .select("id").eq("user_id", str(current_user.id)).single().execute()
+            .select("id").eq("user_id", str(current_user.id)).limit(1).execute()
         if not profile.data:
             return []
-        result = supabase.table("resumes") \
-            .select("id,original_filename,status,created_at,completion_percentage") \
-            .eq("student_id", profile.data["id"]) \
-            .order("created_at", desc=True) \
-            .execute()
-        return result.data or []
+        student_id = profile.data[0]["id"]
+        try:
+            result = supabase.table("resumes") \
+                .select("id,original_filename,status,created_at,extracted_data") \
+                .eq("student_id", student_id) \
+                .order("created_at", desc=True) \
+                .execute()
+            return result.data or []
+        except Exception:
+            result = supabase.table("resumes") \
+                .select("*") \
+                .eq("student_id", student_id) \
+                .execute()
+            return result.data or []
     except Exception as e:
+        logger.error(f"Failed to fetch resumes: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch resumes")
 
 
@@ -122,7 +131,7 @@ async def list_resumes(current_user=Depends(get_current_user)):
 async def get_ats_score(resume_id: uuid.UUID, job_id: uuid.UUID = None, current_user=Depends(get_current_user)):
     """
     Calculate ATS score for a resume.
-    If job_id provided, scores against specific job requirements.
+    If job_id provided, scores against specific job or placement drive requirements.
     """
     supabase = get_supabase()
     try:
@@ -132,8 +141,21 @@ async def get_ats_score(resume_id: uuid.UUID, job_id: uuid.UUID = None, current_
 
         job_requirements = None
         if job_id:
-            job = supabase.table("jobs").select("*").eq("id", str(job_id)).single().execute()
-            job_requirements = job.data
+            job_res = supabase.table("jobs").select("*").eq("id", str(job_id)).limit(1).execute()
+            if job_res.data and len(job_res.data) > 0:
+                job_requirements = job_res.data[0]
+            else:
+                drive_res = supabase.table("placement_drives").select("*").eq("id", str(job_id)).limit(1).execute()
+                if drive_res.data and len(drive_res.data) > 0:
+                    d = drive_res.data[0]
+                    eligibility = d.get("eligibility") or d.get("eligibility_criteria") or {}
+                    skills = eligibility.get("required_skills") or eligibility.get("eligible_branches") or []
+                    job_requirements = {
+                        "title": d.get("role") or d.get("title") or "Role",
+                        "company": d.get("company_name") or "Company",
+                        "skills_required": skills if isinstance(skills, list) else [str(skills)],
+                        "description": d.get("description", ""),
+                    }
 
         score_result = calculate_ats_score(resume.data.get("parsed_text", ""), job_requirements)
         return score_result
@@ -141,6 +163,7 @@ async def get_ats_score(resume_id: uuid.UUID, job_id: uuid.UUID = None, current_
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"ATS scoring error: {e}")
         raise HTTPException(status_code=500, detail="Failed to calculate ATS score")
 
 
@@ -162,6 +185,7 @@ async def improve_resume_endpoint(resume_id: uuid.UUID, current_user=Depends(get
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Resume improve error: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate improvements")
 
 
@@ -171,22 +195,41 @@ async def generate_cover_letter_endpoint(
     job_id: uuid.UUID,
     current_user=Depends(get_current_user)
 ):
-    """Generate AI cover letter from resume + job description"""
+    """Generate AI cover letter from resume + job or placement drive description"""
     supabase = get_supabase()
     try:
         resume = supabase.table("resumes").select("*").eq("id", str(resume_id)).single().execute()
-        job = supabase.table("jobs").select("*").eq("id", str(job_id)).single().execute()
+        if not resume.data:
+            raise HTTPException(status_code=404, detail="Resume not found")
 
-        if not resume.data or not job.data:
-            raise HTTPException(status_code=404, detail="Resume or job not found")
+        job_data = None
+        job_res = supabase.table("jobs").select("*").eq("id", str(job_id)).limit(1).execute()
+        if job_res.data and len(job_res.data) > 0:
+            job_data = job_res.data[0]
+        else:
+            drive_res = supabase.table("placement_drives").select("*").eq("id", str(job_id)).limit(1).execute()
+            if drive_res.data and len(drive_res.data) > 0:
+                d = drive_res.data[0]
+                eligibility = d.get("eligibility") or d.get("eligibility_criteria") or {}
+                skills = eligibility.get("required_skills") or eligibility.get("eligible_branches") or []
+                job_data = {
+                    "title": d.get("role") or d.get("title") or "Software Engineer",
+                    "company": d.get("company_name") or "Company",
+                    "skills_required": skills if isinstance(skills, list) else [str(skills)],
+                    "description": d.get("description", ""),
+                }
+
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job or placement drive not found")
 
         cover_letter = await generate_cover_letter(
             resume_text=resume.data.get("parsed_text", ""),
-            job=job.data
+            job=job_data
         )
         return {"cover_letter": cover_letter}
 
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Cover letter generation error: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate cover letter")

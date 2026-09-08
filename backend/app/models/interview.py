@@ -10,6 +10,7 @@ import uuid
 class InterviewType(str, Enum):
     TECHNICAL = "technical"
     BEHAVIORAL = "behavioral"
+    SYSTEM_DESIGN = "system_design"
     MIXED = "mixed"
     HR = "hr"
 
@@ -71,9 +72,9 @@ class InterviewResponse(BaseModel):
     questions_asked: List[str] = []
     responses: Optional[List[Dict[str, Any]]] = []
     feedback: Optional[InterviewFeedback] = None
-    started_at: datetime
+    started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

@@ -11,6 +11,21 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_text(response) -> str:
+    """Safely extract text from a Gemini response, handling blocked/empty outputs."""
+    try:
+        return response.text or ""
+    except ValueError as e:
+        # Gemini raises ValueError when finish_reason is not STOP (e.g. SAFETY, RECITATION)
+        # or when the response parts are empty.
+        logger.warning(f"Gemini response has no text content: {e}")
+        return ""
+    except Exception as e:
+        logger.warning(f"Gemini response text extraction failed: {e}")
+        return ""
+
+
 # Initialize Gemini
 _gemini_configured = False
 
@@ -115,7 +130,9 @@ async def extract_resume_data(resume_text: str) -> dict:
         """
 
         response = model.generate_content(prompt)
-        text = response.text.strip()
+        text = _safe_text(response).strip()
+        if not text:
+            return _stub_response("extract_resume_data")
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -152,7 +169,9 @@ async def improve_resume(resume_text: str) -> dict:
         Return ONLY valid JSON.
         """
         response = model.generate_content(prompt)
-        text = response.text.strip().strip("```json").strip("```")
+        text = _safe_text(response).strip().strip("```json").strip("```")
+        if not text:
+            return _stub_response("improve_resume")
         return json.loads(text)
     except Exception as e:
         logger.error(f"Gemini improve_resume error: {e}")
@@ -181,7 +200,10 @@ async def generate_cover_letter(resume_text: str, job: dict) -> str:
         Write a compelling 3-paragraph cover letter. Be specific and professional.
         """
         response = model.generate_content(prompt)
-        return response.text
+        text = _safe_text(response)
+        if not text:
+            return _stub_response("generate_cover_letter")
+        return text
     except Exception as e:
         logger.error(f"Gemini cover letter error: {e}")
         return _stub_response("generate_cover_letter")
@@ -216,7 +238,9 @@ async def generate_interview_questions(
         Example: ["Question 1?", "Question 2?"]
         """
         response = model.generate_content(prompt)
-        text = response.text.strip().strip("```json").strip("```").strip()
+        text = _safe_text(response).strip().strip("```json").strip("```").strip()
+        if not text:
+            return _stub_response("interview_questions")
         questions = json.loads(text)
         return questions[:num_questions]
     except Exception as e:
@@ -249,7 +273,9 @@ async def evaluate_interview_answer(question: str, answer: str, interview_type: 
         Return ONLY valid JSON.
         """
         response = model.generate_content(prompt)
-        text = response.text.strip().strip("```json").strip("```")
+        text = _safe_text(response).strip().strip("```json").strip("```")
+        if not text:
+            return _stub_response("evaluate_answer")
         return json.loads(text)
     except Exception as e:
         logger.error(f"Gemini answer evaluation error: {e}")
@@ -295,7 +321,9 @@ async def generate_interview_summary(interview_data: dict) -> dict:
         }}
         """
         response = model.generate_content(prompt)
-        text = response.text.strip().strip("```json").strip("```")
+        text = _safe_text(response).strip().strip("```json").strip("```")
+        if not text:
+            return {"overall_score": 70, "overall_recommendation": "AI response was empty. Please retry."}
         return json.loads(text)
     except Exception as e:
         logger.error(f"Interview summary error: {e}")
@@ -348,7 +376,10 @@ Provide practical, personalized, and actionable career, placement, and technical
 
         full_prompt = f"{system_context}\n\n{history_text}Student: {message}\nMentor:"
         response = model.generate_content(full_prompt)
-        return response.text
+        text = _safe_text(response)
+        if not text:
+            return "I couldn't generate a response for that message. This may be due to content filtering. Please try rephrasing your question."
+        return text
     except Exception as e:
         logger.error(f"Career guidance error: {e}")
         return "I'm unable to provide guidance at the moment. Please try again later."
@@ -382,7 +413,9 @@ async def analyze_resume_vs_job(resume_text: str, resume_data: dict, job: dict) 
         }}
         """
         response = model.generate_content(prompt)
-        text = response.text.strip().strip("```json").strip("```")
+        text = _safe_text(response).strip().strip("```json").strip("```")
+        if not text:
+            return _stub_response("resume_vs_job")
         return json.loads(text)
     except Exception as e:
         logger.error(f"Resume vs job analysis error: {e}")
@@ -410,7 +443,9 @@ async def recruiter_ai_search(query: str, supabase) -> dict:
         Return ONLY valid JSON.
         """
         response = model.generate_content(prompt)
-        text = response.text.strip().strip("```json").strip("```")
+        text = _safe_text(response).strip().strip("```json").strip("```")
+        if not text:
+            return {"students": [], "message": "AI could not parse query. Try a different search term."}
         filters = json.loads(text)
 
         # Execute search

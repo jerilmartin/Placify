@@ -63,7 +63,7 @@ export default function ApplicationsPage() {
       // 2. Fetch drive applications joined with placement_drives
       const { data, error } = await supabase
         .from("drive_applications")
-        .select("id, status, registered_at, next_step_date, next_step, placement_drives(id, company_name, role, title, location, package_lpa, drive_date)")
+        .select("id, status, registered_at, placement_drives(id, company_name, role, title, location, package_lpa, drive_date)")
         .eq("student_id", sp.id)
         .order("registered_at", { ascending: false });
 
@@ -215,8 +215,8 @@ export default function ApplicationsPage() {
                 <div className="mt-4 flex items-center justify-between rounded-lg border border-border bg-background/50 px-3 py-2 text-[12.5px]">
                   <span className="text-muted-foreground">Status Note</span>
                   <span className="text-foreground font-medium">
-                    {app.next_step_date
-                      ? `Interview scheduled: ${new Date(app.next_step_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} · ${app.next_step || "Recruiter interview"}`
+                    {drive?.drive_date
+                      ? `Drive / interview scheduled for ${new Date(drive.drive_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
                       : "Application registered for campus drive · Awaiting placement cell updates"}
                   </span>
                 </div>

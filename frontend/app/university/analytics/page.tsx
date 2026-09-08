@@ -45,7 +45,14 @@ export default function UniversityAnalyticsPage() {
         // Branch-wise placement from Supabase
         const { data: students } = await supabase
           .from("student_profiles")
-          .select("course, placement_status");
+          .select("id, course");
+
+        const { data: placedApps } = await supabase
+          .from("drive_applications")
+          .select("student_id")
+          .eq("status", "selected");
+
+        const placedSet = new Set(placedApps?.map((a: any) => a.student_id) || []);
 
         if (students) {
           const branchMap: Record<string, { total: number; placed: number }> = {};
@@ -53,7 +60,7 @@ export default function UniversityAnalyticsPage() {
             const branch = s.course || "Other";
             if (!branchMap[branch]) branchMap[branch] = { total: 0, placed: 0 };
             branchMap[branch].total++;
-            if (s.placement_status === "placed") branchMap[branch].placed++;
+            if (placedSet.has(s.id)) branchMap[branch].placed++;
           }
           const stats = Object.entries(branchMap).map(([branch, v]) => ({
             branch: branch.length > 20 ? branch.slice(0, 18) + "…" : branch,
