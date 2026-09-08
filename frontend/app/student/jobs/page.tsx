@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { Search, MapPin, CalendarDays, Trophy, Building2, Info } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Search, MapPin, CalendarDays, Trophy, Building2, Info, Sparkles, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { aiApi, resumesApi } from "@/lib/api";
 
 interface Drive {
   id: string;
@@ -103,6 +105,13 @@ export default function JobsPage() {
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [search, setSearch] = useState("");
 
+  // AI Match state
+  const [matchDrive, setMatchDrive] = useState<Drive | null>(null);
+  const [matchResult, setMatchResult] = useState<any>(null);
+  const [matchLoading, setMatchLoading] = useState(false);
+  const [resumesList, setResumesList] = useState<any[]>([]);
+  const [selectedResumeId, setSelectedResumeId] = useState<string>("");
+
   const showToast = (type: "success" | "error", msg: string) => {
     setToast({ type, msg });
     setTimeout(() => setToast(null), 3000);
@@ -130,9 +139,36 @@ export default function JobsPage() {
       }
 
       setLoading(false);
+
+      // Load student's uploaded resumes for match analysis
+      resumesApi.list().then(r => {
+        setResumesList(r.data || []);
+        if (r.data?.length > 0) setSelectedResumeId(r.data[0].id);
+      }).catch(() => {});
     };
     load();
   }, [user]);
+
+  const openMatchModal = (drive: Drive) => {
+    setMatchDrive(drive);
+    setMatchResult(null);
+  };
+
+  const runMatch = async () => {
+    if (!selectedResumeId || !matchDrive) {
+      showToast("error", "Upload a resume first to use AI Match");
+      return;
+    }
+    setMatchLoading(true);
+    try {
+      const res = await aiApi.resumeVsJob(selectedResumeId, matchDrive.id);
+      setMatchResult(res.data);
+    } catch {
+      showToast("error", "AI Match failed — ensure backend is running");
+    } finally {
+      setMatchLoading(false);
+    }
+  };
 
   const applyToDrive = async (drive: Drive) => {
     if (!profile?.id) { showToast("error", "Complete your profile before applying"); return; }
@@ -257,7 +293,15 @@ export default function JobsPage() {
                     )}
                   </div>
 
-                  <div className="shrink-0">
+                  <div className="shrink-0 flex flex-col gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
+                      onClick={() => openMatchModal(drive)}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" /> AI Match
+                    </Button>
                     {isApplied ? (
                       <Button size="sm" variant="outline" disabled className="opacity-60">Applied ✓</Button>
                     ) : eligible ? (
@@ -265,9 +309,7 @@ export default function JobsPage() {
                         {applying === drive.id ? "Applying…" : "Apply Now"}
                       </Button>
                     ) : (
-                      <Button size="sm" disabled className="opacity-40 cursor-not-allowed" title={reason}>
-                        Not Eligible
-                      </Button>
+                      <Button size="sm" disabled className="opacity-40 cursor-not-allowed" title={reason}>Not Eligible</Button>
                     )}
                   </div>
                 </div>
@@ -276,6 +318,105 @@ export default function JobsPage() {
           })}
         </div>
       )}
+
+      {/* AI Match Modal */}
+      <AnimatePresence>
+        {matchDrive && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) { setMatchDrive(null); setMatchResult(null); } }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-lg rounded-2xl border border-border bg-background p-6 shadow-2xl"
+            >
+              <div className="mb-4 flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-primary">
+                    <Sparkles className="h-3 w-3" /> AI Resume Match
+                  </div>
+                  <h2 className="mt-1 text-[17px] font-semibold">{matchDrive.company_name} · {matchDrive.role || matchDrive.title}</h2>
+                </div>
+                <button onClick={() => { setMatchDrive(null); setMatchResult(null); }} className="rounded-full p-1.5 hover:bg-elevated">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {resumesList.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border py-8 text-center">
+                  <p className="text-[13px] text-muted-foreground">Upload a resume on the Resume page first.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-4">
+                    <label className="mb-1.5 block text-[12px] font-medium text-muted-foreground">Select Resume</label>
+                    <select
+                      value={selectedResumeId}
+                      onChange={(e) => setSelectedResumeId(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-[13px]"
+                    >
+                      {resumesList.map((r: any) => (
+                        <option key={r.id} value={r.id}>{r.original_filename}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {!matchResult ? (
+                    <Button onClick={runMatch} disabled={matchLoading} className="w-full gap-2">
+                      {matchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      {matchLoading ? "Analyzing with Gemini…" : "Analyze My Fit"}
+                    </Button>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="text-center">
+                        <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Match Score</div>
+                        <div className="mt-1 text-5xl font-bold text-primary">{matchResult.match_percentage ?? matchResult.overall_match ?? 0}<span className="text-xl">%</span></div>
+                        <Progress value={matchResult.match_percentage ?? matchResult.overall_match ?? 0} className="mt-2 h-2" />
+                      </div>
+
+                      {matchResult.missing_skills?.length > 0 && (
+                        <div>
+                          <div className="mb-2 text-[12px] font-semibold text-destructive">Missing Skills</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {matchResult.missing_skills.map((s: string) => (
+                              <span key={s} className="rounded bg-destructive/10 px-2 py-0.5 text-[11px] text-destructive">{s}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {matchResult.recommendations?.length > 0 && (
+                        <div>
+                          <div className="mb-2 text-[12px] font-semibold text-success">Recommendations</div>
+                          <ul className="space-y-1.5">
+                            {matchResult.recommendations.slice(0, 4).map((r: string, i: number) => (
+                              <li key={i} className="flex items-start gap-1.5 text-[12.5px]">
+                                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />{r}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setMatchResult(null)} className="flex-1">Re-analyze</Button>
+                        {!applied.has(matchDrive.id) && checkEligibility(matchDrive, profile).eligible && (
+                          <Button size="sm" className="flex-1" onClick={() => { applyToDrive(matchDrive); setMatchDrive(null); }}>Apply Now</Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { aiApi } from "@/lib/api";
 
 const applicationTrend = [
   { d: "W1", applied: 1, interviews: 0 },
@@ -73,6 +74,8 @@ export default function Dashboard() {
   const [drives, setDrives] = useState<Drive[]>([]);
   const [trendData, setTrendData] = useState(applicationTrend);
   const [loading, setLoading] = useState(true);
+  const [placementRisk, setPlacementRisk] = useState<any>(null);
+  const [profileStrength, setProfileStrength] = useState<any>(null);
 
   const firstName = profile?.full_name?.split(" ")[0] || user?.full_name?.split(" ")[0] || "there";
 
@@ -107,6 +110,10 @@ export default function Dashboard() {
       setDrives(drivesData || []);
 
       setLoading(false);
+
+      // Fetch AI-powered insights in background (don't block main load)
+      aiApi.placementRisk().then(r => setPlacementRisk(r.data)).catch(() => {});
+      aiApi.profileStrength().then(r => setProfileStrength(r.data)).catch(() => {});
     };
     load();
   }, [user]);
@@ -383,6 +390,89 @@ export default function Dashboard() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* AI Placement Risk + Profile Strength */}
+      {(placementRisk || profileStrength) && (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {/* Placement Risk */}
+          {placementRisk && (
+            <div className={`rounded-xl border p-5 ${
+              placementRisk.risk_level === 'Low' ? 'border-success/30 bg-success/5'
+              : placementRisk.risk_level === 'Medium' ? 'border-warning/30 bg-warning/5'
+              : 'border-destructive/30 bg-destructive/5'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] uppercase tracking-wider font-medium opacity-70">AI Placement Risk</div>
+                <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${
+                  placementRisk.risk_level === 'Low' ? 'bg-success/15 text-success'
+                  : placementRisk.risk_level === 'Medium' ? 'bg-warning/15 text-warning'
+                  : 'bg-destructive/15 text-destructive'
+                }`}>{placementRisk.risk_level} Risk</span>
+              </div>
+              <div className="mt-3 flex items-baseline gap-1">
+                <span className="text-4xl font-bold tabular-nums">
+                  {placementRisk.probability ?? placementRisk.placement_probability ?? '—'}
+                </span>
+                <span className="text-muted-foreground">% placement probability</span>
+              </div>
+              <Progress value={placementRisk.probability ?? placementRisk.placement_probability ?? 0} className="mt-3 h-1.5" />
+              {(placementRisk.top_improvements?.length > 0 || placementRisk.tips?.length > 0) && (
+                <ul className="mt-4 space-y-1.5">
+                  {(placementRisk.top_improvements || placementRisk.tips || []).slice(0, 3).map((tip: string, i: number) => (
+                    <li key={i} className="flex items-start gap-2 text-[12.5px]">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                      <span>{tip}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Profile Strength */}
+          {profileStrength && (
+            <div className="rounded-xl border border-border bg-surface p-5">
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground">AI Profile Strength</div>
+                <div className="flex items-center gap-2">
+                  {profileStrength.level && (
+                    <span className="text-[11px] font-medium text-muted-foreground">{profileStrength.level}</span>
+                  )}
+                  <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[12px] font-semibold text-primary">
+                    {profileStrength.overall_score ?? 0}/100
+                  </span>
+                </div>
+              </div>
+              <Progress value={profileStrength.overall_score ?? 0} className="mt-3 h-1.5" />
+              <div className="mt-4 space-y-2.5">
+                {Array.isArray(profileStrength.sections) ? (
+                  profileStrength.sections.map((sec: any) => (
+                    <div key={sec.section || sec.label}>
+                      <div className="mb-1 flex justify-between text-[12px]">
+                        <span className="text-muted-foreground">{sec.label || sec.section}</span>
+                        <span className="tabular-nums font-medium text-foreground">
+                          {sec.score}/{sec.max_score} ({sec.percentage}%)
+                        </span>
+                      </div>
+                      <Progress value={sec.percentage ?? 0} className="h-1" />
+                    </div>
+                  ))
+                ) : profileStrength.sections && typeof profileStrength.sections === 'object' ? (
+                  Object.entries(profileStrength.sections as Record<string, number>).map(([k, v]) => (
+                    <div key={k}>
+                      <div className="mb-1 flex justify-between text-[12px]">
+                        <span className="capitalize text-muted-foreground">{k.replace(/_/g, ' ')}</span>
+                        <span className="tabular-nums font-medium">{typeof v === 'number' ? v : JSON.stringify(v)}</span>
+                      </div>
+                      <Progress value={typeof v === 'number' ? v : 0} className="h-1" />
+                    </div>
+                  ))
+                ) : null}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
