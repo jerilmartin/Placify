@@ -62,21 +62,42 @@ async def resume_vs_job_analysis(request: ResumeJobAnalysisRequest, current_user
     """
     supabase = get_supabase()
     try:
-        resume = supabase.table("resumes").select("*").eq("id", request.resume_id).single().execute()
-        job = supabase.table("jobs").select("*").eq("id", request.job_id).single().execute()
+        resume_res = supabase.table("resumes").select("*").eq("id", request.resume_id).limit(1).execute()
+        if not resume_res.data:
+            raise HTTPException(status_code=404, detail="Resume not found")
+        resume = resume_res.data[0]
 
-        if not resume.data or not job.data:
-            raise HTTPException(status_code=404, detail="Resume or job not found")
+        job_data = None
+        job_res = supabase.table("jobs").select("*").eq("id", request.job_id).limit(1).execute()
+        if job_res.data and len(job_res.data) > 0:
+            job_data = job_res.data[0]
+        else:
+            drive_res = supabase.table("placement_drives").select("*").eq("id", request.job_id).limit(1).execute()
+            if drive_res.data and len(drive_res.data) > 0:
+                drive = drive_res.data[0]
+                eligibility = drive.get("eligibility") or drive.get("eligibility_criteria") or {}
+                skills = eligibility.get("required_skills") or eligibility.get("eligible_branches") or []
+                job_data = {
+                    "id": drive.get("id"),
+                    "title": drive.get("role") or drive.get("title") or "Software Engineer",
+                    "company": drive.get("company_name") or "Company",
+                    "description": drive.get("description") or f"Campus placement drive for {drive.get('company_name')}",
+                    "skills_required": skills if isinstance(skills, list) else [str(skills)],
+                }
+
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job or placement drive not found")
 
         analysis = await analyze_resume_vs_job(
-            resume_text=resume.data.get("parsed_text", ""),
-            resume_data=resume.data.get("extracted_data", {}),
-            job=job.data,
+            resume_text=resume.get("parsed_text", ""),
+            resume_data=resume.get("extracted_data", {}),
+            job=job_data,
         )
         return analysis
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Resume vs job analysis error: {e}")
         raise HTTPException(status_code=500, detail="Analysis failed")
 
 

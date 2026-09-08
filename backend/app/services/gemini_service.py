@@ -305,21 +305,48 @@ async def generate_interview_summary(interview_data: dict) -> dict:
 # ── Career & Recruiter Features ───────────────────────────────────────────────
 
 async def career_guidance_chat(message: str, history: list, student_context: dict) -> str:
-    """AI career guidance chatbot"""
+    """AI career guidance chatbot with rich student database context and history"""
     model = _get_model(use_flash=True)
     if not model:
         return _stub_response("career_guidance")
 
     try:
-        skills = ', '.join(student_context.get("skills", [])[:10]) if student_context else "not provided"
-        cgpa = student_context.get("cgpa", "N/A")
-        course = student_context.get("course", "N/A")
+        name = student_context.get("full_name") or "Student"
+        skills = ', '.join(student_context.get("skills", [])[:15]) if student_context.get("skills") else "Not listed yet"
+        cgpa = student_context.get("cgpa") if student_context.get("cgpa") is not None else "N/A"
+        course = student_context.get("course") or "Engineering"
+        university = student_context.get("university") or "University"
+        grad_year = student_context.get("graduation_year") or "N/A"
+        projects = student_context.get("projects") or []
+        project_names = [p.get("title") or p.get("name", "") for p in projects if isinstance(p, dict)] if projects else []
+        proj_str = ', '.join(project_names[:5]) if project_names else "None listed yet"
 
-        system_context = f"""You are an expert career mentor for engineering students.
-        Student context: Course: {course}, CGPA: {cgpa}, Skills: {skills}
-        Provide practical, actionable career advice. Be encouraging but realistic."""
+        system_context = f"""You are an expert, encouraging, and highly knowledgeable career mentor for students on Placify.
+Student Profile (Real Database Context):
+- Name: {name}
+- University: {university}
+- Course/Branch: {course} (Graduation: {grad_year})
+- CGPA: {cgpa} / 10.0
+- Listed Skills: {skills}
+- Portfolio Projects: {proj_str}
 
-        full_prompt = f"{system_context}\n\nStudent: {message}"
+Provide practical, personalized, and actionable career, placement, and technical advice tailored to this student's real profile. Address the student by name if appropriate."""
+
+        # Format previous messages if available
+        history_text = ""
+        if history and isinstance(history, list):
+            recent_turns = history[-6:]  # keep last 6 turns for context
+            formatted_turns = []
+            for item in recent_turns:
+                if isinstance(item, dict):
+                    role = item.get("role") or item.get("sender") or "User"
+                    content = item.get("content") or item.get("message") or item.get("text") or ""
+                    if content:
+                        formatted_turns.append(f"{role.capitalize()}: {content}")
+            if formatted_turns:
+                history_text = "Previous Conversation:\n" + "\n".join(formatted_turns) + "\n\n"
+
+        full_prompt = f"{system_context}\n\n{history_text}Student: {message}\nMentor:"
         response = model.generate_content(full_prompt)
         return response.text
     except Exception as e:
