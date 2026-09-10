@@ -48,6 +48,9 @@ CREATE TABLE university_profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE student_profiles
+  ADD COLUMN university_id UUID REFERENCES university_profiles(id) ON DELETE SET NULL;
+
 -- ── Recruiter Profiles ───────────────────────────────────────
 CREATE TABLE recruiter_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -313,6 +316,7 @@ CREATE TABLE documents (
 -- INDEXES
 -- ══════════════════════════════════════════════════════════════
 CREATE INDEX idx_student_profiles_user ON student_profiles(user_id);
+CREATE INDEX idx_student_profiles_university ON student_profiles(university_id);
 CREATE INDEX idx_university_profiles_user ON university_profiles(user_id);
 CREATE INDEX idx_recruiter_profiles_user ON recruiter_profiles(user_id);
 CREATE INDEX idx_mentor_profiles_user ON mentor_profiles(user_id);
@@ -398,10 +402,8 @@ AS $function$
   SELECT EXISTS (
     SELECT 1
     FROM student_profiles AS student
-    JOIN university_profiles AS university
-      ON LOWER(BTRIM(student.university)) = LOWER(BTRIM(university.name))
     WHERE student.user_id = auth.uid()
-      AND university.id = p_university_id
+      AND student.university_id = p_university_id
   );
 $function$;
 REVOKE ALL ON FUNCTION student_belongs_to_university(UUID) FROM PUBLIC, anon;
@@ -412,6 +414,9 @@ CREATE POLICY "Students view university drives" ON placement_drives FOR SELECT
 CREATE POLICY "University manages drives" ON placement_drives FOR ALL
   USING (university_id IN (SELECT id FROM university_profiles WHERE user_id = auth.uid()))
   WITH CHECK (university_id IN (SELECT id FROM university_profiles WHERE user_id = auth.uid()));
+
+CREATE POLICY "University views own students" ON student_profiles FOR SELECT
+  USING (university_id IN (SELECT id FROM university_profiles WHERE user_id = auth.uid()));
 
 CREATE POLICY "Recruiter views own drive requests" ON drive_requests FOR SELECT
   USING (recruiter_id IN (SELECT id FROM recruiter_profiles WHERE user_id = auth.uid()));
@@ -431,6 +436,12 @@ CREATE POLICY "Recruiters manage job applications" ON applications FOR ALL
 CREATE POLICY "Own drive apps" ON drive_applications FOR ALL
   USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
   WITH CHECK (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()));
+CREATE POLICY "University views own drive applications" ON drive_applications FOR SELECT
+  USING (drive_id IN (
+    SELECT drive.id FROM placement_drives AS drive
+    JOIN university_profiles AS university ON university.id = drive.university_id
+    WHERE university.user_id = auth.uid()
+  ));
 
 CREATE POLICY "Own matches" ON job_matches FOR ALL
   USING (student_id IN (SELECT id FROM student_profiles WHERE user_id = auth.uid()))
