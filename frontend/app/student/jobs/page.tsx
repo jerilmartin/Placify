@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { aiApi, resumesApi } from "@/lib/api";
+import { aiApi, resumesApi, jobsApi } from "@/lib/api";
 
 interface Drive {
   id: string;
@@ -116,26 +116,26 @@ export default function JobsPage() {
     setToast({ type, msg });
     setTimeout(() => setToast(null), 3000);
   };
-
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      // Load student profile
-      const { data: sp } = await supabase.from("student_profiles").select("id, cgpa, active_backlogs, course").eq("user_id", user.id).maybeSingle();
+      // Load student profile (own row, always visible)
+      const { data: sp } = await supabase
+        .from("student_profiles")
+        .select("id, cgpa, active_backlogs, course")
+        .eq("user_id", user.id)
+        .maybeSingle();
       setProfile(sp);
 
-      // Load all active/upcoming drives
-      const { data: drivesData } = await supabase
-        .from("placement_drives")
-        .select("*")
-        .in("status", ["upcoming", "active"])
-        .order("created_at", { ascending: false });
-      setDrives(drivesData || []);
-
-      // Load already applied drives
-      if (sp?.id) {
-        const { data: apps } = await supabase.from("drive_applications").select("drive_id").eq("student_id", sp.id);
-        setApplied(new Set(apps?.map((a) => a.drive_id) || []));
+      // Load drives via backend API — service-role bypasses RLS student-university match issue
+      try {
+        const drivesRes = await jobsApi.listDrives();
+        const drivesData: Drive[] = drivesRes.data || [];
+        setDrives(drivesData);
+        // Backend annotates each drive with already_applied flag
+        setApplied(new Set(drivesData.filter((d: any) => d.already_applied).map((d: any) => d.id)));
+      } catch (err) {
+        console.error("Failed to load placement drives:", err);
       }
 
       setLoading(false);
@@ -148,6 +148,7 @@ export default function JobsPage() {
     };
     load();
   }, [user]);
+
 
   const openMatchModal = (drive: Drive) => {
     setMatchDrive(drive);
@@ -171,7 +172,7 @@ export default function JobsPage() {
   };
 
   const applyToDrive = async (drive: Drive) => {
-    if (!profile?.id) { showToast("error", "Complete your profile before applying"); return; }
+    if (!profile?.id) { showToast("error", "Complete your profile first to apply"); return; }
     setApplying(drive.id);
     const { error } = await supabase.from("drive_applications").insert({
       drive_id: drive.id,
@@ -180,7 +181,7 @@ export default function JobsPage() {
     });
     setApplying(null);
     if (error) {
-      showToast("error", error.message);
+      showToast("error", error.message || "Failed to apply");
     } else {
       setApplied((prev) => new Set([...prev, drive.id]));
       showToast("success", `Applied to ${drive.company_name}!`);

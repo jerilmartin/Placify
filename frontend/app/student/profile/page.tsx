@@ -69,7 +69,17 @@ export default function ProfilePage() {
         .eq("user_id", user.id)
         .maybeSingle();
       if (error) console.error(error);
-      if (data) setProfile(data);
+      if (data) {
+        // Normalize null DB values → empty string so React controlled inputs don't error
+        setProfile({
+          ...EMPTY,
+          ...Object.fromEntries(
+            Object.entries(data).map(([k, v]) => [k, v === null ? "" : v])
+          ),
+          skills: Array.isArray(data.skills) ? data.skills : [],
+          profile_completion: data.profile_completion ?? 0,
+        } as ProfileData);
+      }
       setLoading(false);
     };
     load();

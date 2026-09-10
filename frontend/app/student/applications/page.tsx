@@ -61,14 +61,43 @@ export default function ApplicationsPage() {
       }
 
       // 2. Fetch drive applications joined with placement_drives
-      const { data, error } = await supabase
+      const { data: driveData } = await supabase
         .from("drive_applications")
         .select("id, status, registered_at, placement_drives(id, company_name, role, title, location, package_lpa, drive_date)")
         .eq("student_id", sp.id)
         .order("registered_at", { ascending: false });
 
-      if (error) console.error("Error fetching applications:", error.message || error);
-      setApplications((data as unknown as AppliedDrive[]) || []);
+      // 3. Fetch direct job applications joined with jobs
+      const { data: jobData } = await supabase
+        .from("applications")
+        .select("id, status, created_at, jobs(id, company, title, location, salary_min, salary_max)")
+        .eq("student_id", sp.id)
+        .order("created_at", { ascending: false });
+
+      const formattedJobApps: AppliedDrive[] = (jobData || []).map((ja: any) => ({
+        id: ja.id,
+        status: ja.status || "applied",
+        registered_at: ja.created_at,
+        created_at: ja.created_at,
+        placement_drives: ja.jobs ? {
+          id: ja.jobs.id,
+          company_name: ja.jobs.company || "Company",
+          role: ja.jobs.title || "Role",
+          title: ja.jobs.title || "Role",
+          location: ja.jobs.location || null,
+          package_lpa: ja.jobs.salary_max
+            ? Math.round((ja.jobs.salary_max / 100000) * 10) / 10
+            : ja.jobs.salary_min ? Math.round((ja.jobs.salary_min / 100000) * 10) / 10 : null,
+          drive_date: null,
+        } : null,
+      }));
+
+      const merged = [...((driveData as unknown as AppliedDrive[]) || []), ...formattedJobApps];
+      merged.sort((a, b) =>
+        new Date(b.registered_at || b.created_at || 0).getTime() - new Date(a.registered_at || a.created_at || 0).getTime()
+      );
+
+      setApplications(merged);
       setLoading(false);
     };
 

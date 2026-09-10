@@ -7,6 +7,7 @@ import google.generativeai as genai
 from app.config import settings
 import logging
 import json
+import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -106,76 +107,136 @@ async def extract_resume_data(resume_text: str) -> dict:
 
     try:
         prompt = f"""
-        Extract structured information from this resume text and return as JSON:
-        
-        Resume:
-        {resume_text[:3000]}
-        
-        Return JSON with these fields:
+You are a precise resume parser. Extract ALL structured information from the resume below and return ONLY valid JSON — no markdown, no extra text.
+
+Resume Text:
+{resume_text[:5000]}
+
+Return this exact JSON schema (fill every field you can find, use null for missing numeric fields, empty string for missing text, empty array for missing lists):
+{{
+    "name": "<full name from resume header>",
+    "email": "<email address>",
+    "phone": "<phone number including country code if present>",
+    "location": "<city, state or country if mentioned>",
+    "bio": "<a 1-2 sentence professional summary if present, else empty string>",
+    "skills": ["<skill1>", "<skill2>"],
+    "education": [
         {{
-            "name": "",
-            "email": "",
-            "phone": "",
-            "location": "",
-            "skills": [],
-            "education": [{{"degree": "", "institution": "", "year": null, "cgpa": null}}],
-            "experience": [{{"company": "", "role": "", "duration": "", "description": ""}}],
-            "projects": [{{"name": "", "description": "", "tech_stack": []}}],
-            "achievements": [],
-            "linkedin": "",
-            "github": ""
+            "degree": "<full degree name e.g. B.Tech Computer Science>",
+            "institution": "<full university/college name>",
+            "year": <graduation year as integer or null>,
+            "cgpa": <cgpa as float or null>
         }}
-        
-        Return ONLY valid JSON, no markdown.
+    ],
+    "experience": [
+        {{
+            "company": "<company name>",
+            "role": "<job title>",
+            "duration": "<e.g. Jan 2023 - May 2024>",
+            "description": "<what they did in 1-2 sentences>",
+            "skills_used": ["<skill1>"]
+        }}
+    ],
+    "projects": [
+        {{
+            "name": "<project name>",
+            "description": "<what it does in 1-2 sentences>",
+            "tech_stack": ["<tech1>", "<tech2>"],
+            "github_url": "<github link if present else empty string>"
+        }}
+    ],
+    "achievements": ["<achievement1>", "<achievement2>"],
+    "linkedin": "<linkedin profile URL or empty string>",
+    "github": "<github profile URL or empty string>"
+}}
+
+Return ONLY the JSON object.
         """
 
         response = model.generate_content(prompt)
         text = _safe_text(response).strip()
         if not text:
             return _stub_response("extract_resume_data")
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text)
+        clean_text = text
+        if "```" in clean_text:
+            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean_text, re.DOTALL)
+            if match:
+                clean_text = match.group(1)
+            else:
+                parts = clean_text.split("```")
+                clean_text = parts[1] if len(parts) > 1 else clean_text
+                if clean_text.startswith("json"):
+                    clean_text = clean_text[4:]
+        brace_match = re.search(r"(\{.*\})", clean_text, re.DOTALL)
+        if brace_match:
+            clean_text = brace_match.group(1)
+        return json.loads(clean_text)
     except Exception as e:
         logger.error(f"Gemini extract_resume_data error: {e}")
         return _stub_response("extract_resume_data")
 
 
+
 async def improve_resume(resume_text: str) -> dict:
-    """Generate AI resume improvement suggestions"""
+    """Generate specific, contextual AI resume improvement suggestions"""
     model = _get_model(use_flash=True)
     if not model:
         return _stub_response("improve_resume")
 
     try:
-        prompt = f"""
-        Analyze this resume and provide improvement suggestions. Return as JSON:
-        
-        Resume:
-        {resume_text[:3000]}
-        
-        Return JSON:
+        prompt = f"""You are a senior technical recruiter who has reviewed thousands of software engineering resumes.
+Analyze this resume and return a detailed, SPECIFIC improvement report. Every issue and suggestion must reference the actual content from the resume — no generic advice.
+
+Resume:
+{resume_text[:4000]}
+
+Rules:
+1. Read the actual bullet points, project names, and role descriptions from the resume above.
+2. For "issues": point out SPECIFIC weak lines. Example: "The bullet 'Worked on backend' has no measurable impact — add response time improvement or scale handled."
+3. For "specific_improvements": quote the EXACT current text and show a rewritten version.
+4. For "keyword_suggestions": only suggest keywords genuinely absent from the resume that match the candidate's apparent field (infer from their skills/projects).
+5. ATS score: calculate based on action verbs, quantified achievements, clear section headers, and keyword density.
+6. Do NOT give generic tips like "use action verbs" without pointing to a specific bullet that lacks them.
+7. Do NOT suggest "keep to 1-2 pages" — modern resumes are judged on quality not page count.
+
+Return ONLY valid JSON:
+{{
+    "ats_score": <0-100 integer>,
+    "overall_grade": "<A/B/C/D>",
+    "issues": [
+        "<Specific issue referencing actual resume content>",
+        "<Another specific issue>"
+    ],
+    "keyword_suggestions": ["<keyword genuinely missing from this resume>"],
+    "section_scores": {{"summary": <0-100>, "experience": <0-100>, "skills": <0-100>, "education": <0-100>, "projects": <0-100>}},
+    "specific_improvements": [
         {{
-            "ats_score": <0-100>,
-            "overall_grade": "<A/B/C/D>",
-            "issues": ["<issue1>", "<issue2>"],
-            "keyword_suggestions": ["<keyword1>"],
-            "section_scores": {{"summary": <0-100>, "experience": <0-100>, "skills": <0-100>, "education": <0-100>}},
-            "specific_improvements": [{{"section": "", "current": "", "suggestion": ""}}]
+            "section": "<section name>",
+            "current": "<exact quote from resume>",
+            "suggestion": "<rewritten version with metrics/impact>"
         }}
-        
-        Return ONLY valid JSON.
-        """
+    ]
+}}
+"""
         response = model.generate_content(prompt)
-        text = _safe_text(response).strip().strip("```json").strip("```")
+        text = _safe_text(response).strip()
         if not text:
             return _stub_response("improve_resume")
+        # Clean markdown code fences if present
+        if "```" in text:
+            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            if match:
+                text = match.group(1)
+            else:
+                text = text.replace("```json", "").replace("```", "").strip()
+        brace_match = re.search(r"(\{.*\})", text, re.DOTALL)
+        if brace_match:
+            text = brace_match.group(1)
         return json.loads(text)
     except Exception as e:
         logger.error(f"Gemini improve_resume error: {e}")
         return _stub_response("improve_resume")
+
 
 
 async def generate_cover_letter(resume_text: str, job: dict) -> str:
@@ -215,7 +276,7 @@ async def generate_interview_questions(
     profile: dict, job: Optional[dict], interview_type: str,
     difficulty: str, target_role: Optional[str], num_questions: int
 ) -> list:
-    """Generate contextual interview questions"""
+    """Generate highly contextual, role-specific interview questions"""
     model = _get_model(use_flash=True)
     if not model:
         return _stub_response("interview_questions")
@@ -223,25 +284,66 @@ async def generate_interview_questions(
     try:
         job_title = job.get("title") if job else target_role or "Software Developer"
         company = job.get("company") if job else "a tech company"
-        skills = ', '.join(profile.get("skills", [])[:10])
-        job_skills = ', '.join(job.get("skills_required", [])[:10]) if job else ""
+        candidate_skills_list = profile.get("skills") or []
+        candidate_skills = ', '.join([s for s in candidate_skills_list[:15] if isinstance(s, str)]) or "Not specified"
+        job_skills_list = (job.get("skills_required") or []) if job else []
+        job_skills = ', '.join([s for s in job_skills_list[:15] if isinstance(s, str)]) if job else ""
+        jd_text = (job.get("description") or "")[:1500] if job else ""
 
-        prompt = f"""
-        Generate exactly {num_questions} interview questions for a {difficulty} difficulty {interview_type} interview.
-        
-        Candidate: {profile.get('full_name', 'Candidate')}
-        Skills: {skills}
-        Role: {job_title} at {company}
-        Required Skills: {job_skills}
-        
-        Return ONLY a JSON array of question strings. No numbering, no extra text.
-        Example: ["Question 1?", "Question 2?"]
-        """
+        # Infer skills gap: what the job requires that the candidate lacks
+        candidate_skill_set = set(str(s).lower() for s in candidate_skills_list if s)
+        required_skill_set = set(str(s).lower() for s in job_skills_list if s)
+        missing_skills = list(required_skill_set - candidate_skill_set)[:5]
+        missing_str = ', '.join(missing_skills) if missing_skills else "None identified"
+
+        type_guidance = {
+            "technical": "Focus on coding problems, data structures, algorithms, system concepts, and hands-on technical depth relevant to the role.",
+            "behavioral": "Focus on past experiences, teamwork, conflict resolution, leadership, and situational judgment using STAR-format questions.",
+            "system_design": "Focus on designing scalable systems, architecture trade-offs, database choices, API design, and distributed systems concepts.",
+            "hr": "Focus on motivation, culture fit, career goals, salary expectations, and understanding the candidate's professional trajectory.",
+        }.get(interview_type, "Ask comprehensive questions across technical and behavioral dimensions.")
+
+        prompt = f"""You are an experienced technical interviewer at {company} hiring for the role: {job_title}.
+
+You must generate exactly {num_questions} {difficulty}-difficulty {interview_type} interview questions.
+
+Candidate Profile:
+- Name: {profile.get('full_name', 'Candidate')}
+- Listed Skills: {candidate_skills}
+- Missing/Gap Skills for this role: {missing_str}
+
+Job Context:
+- Role: {job_title} at {company}
+- Required Skills: {job_skills}
+- Job Description Excerpt: {jd_text}
+
+Interview focus: {type_guidance}
+
+Rules:
+1. Make questions SPECIFIC to this role and company — not generic.
+2. Reference real concepts required for {job_title} work.
+3. Probe the candidate's gap skills: {missing_str}.
+4. For {difficulty} difficulty, calibrate depth accordingly.
+5. Do NOT ask generic questions like "Tell me your strengths" unless it's an HR round.
+
+Return ONLY a JSON array of {num_questions} question strings. No numbering, no markdown, no extra text.
+Example format: ["Question 1?", "Question 2?"]
+"""
         response = model.generate_content(prompt)
-        text = _safe_text(response).strip().strip("```json").strip("```").strip()
+        text = _safe_text(response).strip()
         if not text:
             return _stub_response("interview_questions")
+        # Extract JSON array from response
+        arr_match = re.search(r'(\[.*?\])', text, re.DOTALL)
+        if arr_match:
+            text = arr_match.group(1)
+        else:
+            text = text.strip('`').strip()
+            if text.startswith('json'):
+                text = text[4:].strip()
         questions = json.loads(text)
+        if not isinstance(questions, list):
+            return _stub_response("interview_questions")
         return questions[:num_questions]
     except Exception as e:
         logger.error(f"Gemini question generation error: {e}")
@@ -333,7 +435,7 @@ async def generate_interview_summary(interview_data: dict) -> dict:
 # ── Career & Recruiter Features ───────────────────────────────────────────────
 
 async def career_guidance_chat(message: str, history: list, student_context: dict) -> str:
-    """AI career guidance chatbot with rich student database context and history"""
+    """AI career guidance chatbot — concise, direct, student-profile-aware"""
     model = _get_model(use_flash=True)
     if not model:
         return _stub_response("career_guidance")
@@ -348,22 +450,30 @@ async def career_guidance_chat(message: str, history: list, student_context: dic
         projects = student_context.get("projects") or []
         project_names = [p.get("title") or p.get("name", "") for p in projects if isinstance(p, dict)] if projects else []
         proj_str = ', '.join(project_names[:5]) if project_names else "None listed yet"
+        experience = student_context.get("experience") or []
+        exp_str = ', '.join([e.get("company", "") for e in experience[:3] if isinstance(e, dict)]) or "No experience listed"
+        bio = student_context.get("bio") or ""
 
-        system_context = f"""You are an expert, encouraging, and highly knowledgeable career mentor for students on Placify.
-Student Profile (Real Database Context):
+        system_context = f"""You are a sharp, concise career mentor on Placify. The student's REAL profile from the database:
 - Name: {name}
-- University: {university}
-- Course/Branch: {course} (Graduation: {grad_year})
-- CGPA: {cgpa} / 10.0
-- Listed Skills: {skills}
-- Portfolio Projects: {proj_str}
+- University: {university} | Course: {course} | Grad Year: {grad_year}
+- CGPA: {cgpa}/10
+- Skills: {skills}
+- Projects: {proj_str}
+- Experience: {exp_str}
+- Bio: {bio}
 
-Provide practical, personalized, and actionable career, placement, and technical advice tailored to this student's real profile. Address the student by name if appropriate."""
+CRITICAL RULES:
+1. Answer ONLY what was asked — no unsolicited advice, no padding.
+2. Be SHORT and DIRECT. Use bullet points for lists. Max 150 words unless the question needs more detail.
+3. Reference the student's actual profile data above when relevant (e.g. their real skills, CGPA, projects).
+4. Never give generic advice — personalize to this student's situation.
+5. If you don't have enough data to answer precisely, say so briefly and ask a follow-up."""
 
-        # Format previous messages if available
+        # Format recent history
         history_text = ""
         if history and isinstance(history, list):
-            recent_turns = history[-6:]  # keep last 6 turns for context
+            recent_turns = history[-6:]
             formatted_turns = []
             for item in recent_turns:
                 if isinstance(item, dict):
@@ -372,17 +482,17 @@ Provide practical, personalized, and actionable career, placement, and technical
                     if content:
                         formatted_turns.append(f"{role.capitalize()}: {content}")
             if formatted_turns:
-                history_text = "Previous Conversation:\n" + "\n".join(formatted_turns) + "\n\n"
+                history_text = "Previous messages:\n" + "\n".join(formatted_turns) + "\n\n"
 
         full_prompt = f"{system_context}\n\n{history_text}Student: {message}\nMentor:"
         response = model.generate_content(full_prompt)
         text = _safe_text(response)
         if not text:
-            return "I couldn't generate a response for that message. This may be due to content filtering. Please try rephrasing your question."
-        return text
+            return "I couldn't generate a response. Please try rephrasing."
+        return text.strip()
     except Exception as e:
         logger.error(f"Career guidance error: {e}")
-        return "I'm unable to provide guidance at the moment. Please try again later."
+        return "Career guidance is temporarily unavailable. Please try again."
 
 
 async def analyze_resume_vs_job(resume_text: str, resume_data: dict, job: dict) -> dict:

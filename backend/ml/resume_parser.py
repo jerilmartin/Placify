@@ -1,4 +1,5 @@
 import re
+import asyncio
 try:
     import spacy
 except ImportError:
@@ -132,7 +133,9 @@ class ResumeParserML:
     def extract_entities(self, text: str) -> Dict:
         """
         Parse raw resume text and extract structured fields.
-        Prioritizes accuracy for core fields using Regex and NLP heuristics.
+        Layer 1: Fast regex + spaCy for contact info and skills.
+        Layer 2: Gemini AI for deep extraction (education details, experience, projects, location).
+        Falls back gracefully if Gemini is unavailable.
         """
         if not text:
             return self._empty_profile()
@@ -140,39 +143,53 @@ class ResumeParserML:
         text_clean = re.sub(r'\s+', ' ', text).strip()
         doc = self.nlp(text_clean) if self.nlp else None
         
-        # 1. Contact Information (Regex - Highest Accuracy)
+        # Layer 1: Contact Information (Regex - Highest Accuracy)
         email = self._extract_email(text_clean)
         phone = self._extract_phone(text_clean)
         links = self._extract_links(text_clean)
-        
-        # 2. Personal Information (NLP + Heuristics)
         name = self._extract_name(text, doc)
-        
-        # 3. Skills (Dictionary Matching - High Accuracy)
         skills = self._extract_skills(text_clean)
         
-        # 4. Sections (Heuristics)
-        education = self._extract_education(text)
-        experience = self._extract_experience(text)
-        projects = self._extract_projects(text)
-        
-        return {
-            "name": name,
-            "email": email,
-            "phone": phone,
-            "location": "", # Hard to parse without geocoding API, leaving blank for manual entry
-            "skills": skills,
-            "education": education,
-            "experience": experience,
-            "projects": projects,
-            "achievements": [],
-            "linkedin": links.get("linkedin", ""),
-            "github": links.get("github", "")
+        # Layer 2: Gemini deep extraction for the hard fields
+        # We run it synchronously via asyncio if we're not already in an event loop
+        gemini_data = {}
+        try:
+            from app.services.gemini_service import extract_resume_data as gemini_extract
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # We're inside an async context (FastAPI) — we can't nest event loops
+                    # Caller should call gemini_extract directly; use regex fallback here
+                    gemini_data = {}
+                else:
+                    gemini_data = loop.run_until_complete(gemini_extract(text))
+            except RuntimeError:
+                # No event loop — create one
+                gemini_data = asyncio.run(gemini_extract(text))
+        except Exception as e:
+            logger.warning(f"Gemini enrichment skipped in ML parser: {e}")
+            gemini_data = {}
+
+        # Merge: prefer Gemini for deep fields, regex for contact (more reliable)
+        result = {
+            "name": name or gemini_data.get("name", ""),
+            "email": email or gemini_data.get("email", ""),
+            "phone": phone or gemini_data.get("phone", ""),
+            "location": gemini_data.get("location", ""),
+            "bio": gemini_data.get("bio", ""),
+            "skills": skills if skills else gemini_data.get("skills", []),
+            "education": gemini_data.get("education", []),
+            "experience": gemini_data.get("experience", []),
+            "projects": gemini_data.get("projects", []),
+            "achievements": gemini_data.get("achievements", []),
+            "linkedin": links.get("linkedin", "") or gemini_data.get("linkedin", ""),
+            "github": links.get("github", "") or gemini_data.get("github", ""),
         }
+        return result
 
     def _empty_profile(self) -> Dict:
         return {
-            "name": "", "email": "", "phone": "", "location": "",
+            "name": "", "email": "", "phone": "", "location": "", "bio": "",
             "skills": [], "education": [], "experience": [], "projects": [],
             "achievements": [], "linkedin": "", "github": ""
         }
@@ -239,33 +256,3 @@ class ResumeParserML:
                     else: found_skills.add(skill.title())
                     
         return sorted(list(found_skills))
-
-    def _extract_education(self, text: str) -> List[Dict]:
-        """Simple heuristic extraction based on keywords"""
-        education = []
-        text_lower = text.lower()
-        
-        # Very basic check - a full parser would split by sections
-        if "b.tech" in text_lower or "bachelor" in text_lower or "b.e." in text_lower:
-            degree = "B.Tech / Bachelor's"
-            education.append({"degree": degree, "institution": "", "year": None, "cgpa": None})
-            
-        if "m.tech" in text_lower or "master" in text_lower:
-            degree = "M.Tech / Master's"
-            education.append({"degree": degree, "institution": "", "year": None, "cgpa": None})
-            
-        return education
-
-    def _extract_experience(self, text: str) -> List[Dict]:
-        """Simple placeholder - full experience extraction requires complex layout parsing"""
-        text_lower = text.lower()
-        experience = []
-        
-        if "experience" in text_lower or "employment" in text_lower or "internship" in text_lower:
-            # We add a placeholder entry to indicate experience was found
-            pass
-            
-        return experience
-        
-    def _extract_projects(self, text: str) -> List[Dict]:
-        return []
