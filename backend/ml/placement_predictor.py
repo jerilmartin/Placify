@@ -2,22 +2,17 @@
 ML Placement Risk Predictor
 Scikit-Learn RandomForest model to predict placement probability
 
-Usage:
-    predictor = PlacementPredictor()
-    predictor.train()  # with sample data
-    result = predictor.predict(student_profile)
+The production path trains only from real student outcomes supplied by the API.
 """
 
 import numpy as np
 import logging
 import os
-import json
 from typing import Optional, List, Dict, Any
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "placement_predictor.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "placement_predictor_v2.pkl")
 
 
 class PlacementPredictor:
@@ -32,7 +27,9 @@ class PlacementPredictor:
     - profile_completion: Profile strength %
     - has_github: Boolean
     - has_linkedin: Boolean
-    - graduation_year: Proximity to graduation
+    - work_experience_count: Number of recorded roles
+    - active_backlogs: Current unresolved backlogs
+    - mock_interview_score: Average completed mock-interview score
     """
 
     FEATURE_NAMES = [
@@ -44,13 +41,15 @@ class PlacementPredictor:
         "has_github",
         "has_linkedin",
         "work_experience_count",
+        "active_backlogs",
+        "mock_interview_score",
     ]
 
     def __init__(self):
         self.model = None
         self._trained = False
 
-    def _extract_features(self, profile: dict) -> List[float]:
+    def extract_features(self, profile: dict) -> List[float]:
         """Extract ML features from student profile dict"""
         skills = profile.get("skills") or []
         projects = profile.get("projects") or []
@@ -65,66 +64,22 @@ class PlacementPredictor:
             1.0 if profile.get("github_url") else 0.0,
             1.0 if profile.get("linkedin_url") else 0.0,
             len(work_exp),
+            float(profile.get("active_backlogs") or 0),
+            (
+                float(profile.get("mock_interview_score") or 0) / 100
+                if float(profile.get("mock_interview_score") or 0) > 10
+                else float(profile.get("mock_interview_score") or 0) / 10
+            ),
         ]
 
-    def _generate_synthetic_data(self, n_samples: int = 1000):
-        """
-        Generate synthetic training data for initial model training.
-        In production, replace with real historical placement data.
-        """
-        np.random.seed(42)
-
-        X = []
-        y = []
-
-        for _ in range(n_samples):
-            skills_count = np.random.randint(0, 20)
-            cgpa = np.random.uniform(4.0, 10.0)
-            projects_count = np.random.randint(0, 8)
-            has_internship = np.random.binomial(1, 0.4)
-            profile_completion = np.random.uniform(0.2, 1.0)
-            has_github = np.random.binomial(1, 0.6)
-            has_linkedin = np.random.binomial(1, 0.5)
-            work_exp = np.random.randint(0, 3)
-
-            features = [
-                skills_count, cgpa, projects_count, has_internship,
-                profile_completion, has_github, has_linkedin, work_exp
-            ]
-
-            # Placement probability based on features
-            score = (
-                skills_count * 0.3 +
-                (cgpa - 4) / 6 * 3.0 +
-                projects_count * 0.4 +
-                has_internship * 1.5 +
-                profile_completion * 2.0 +
-                has_github * 0.5 +
-                has_linkedin * 0.3 +
-                work_exp * 0.5
-            )
-            placed = 1 if score + np.random.normal(0, 0.5) > 4.0 else 0
-
-            X.append(features)
-            y.append(placed)
-
-        return np.array(X), np.array(y)
-
-    def train(self, X=None, y=None) -> None:
-        """
-        Train the placement prediction model.
-        If no data provided, uses synthetic data for demonstration.
-        """
+    def train(self, X, y) -> None:
+        """Train the model from labeled historical placement records."""
         try:
             from sklearn.ensemble import RandomForestClassifier
             from sklearn.preprocessing import StandardScaler
             from sklearn.pipeline import Pipeline
             from sklearn.model_selection import cross_val_score
             import joblib
-
-            if X is None or y is None:
-                logger.info("Using synthetic training data (replace with real data for production)")
-                X, y = self._generate_synthetic_data()
 
             pipeline = Pipeline([
                 ("scaler", StandardScaler()),
@@ -137,9 +92,11 @@ class PlacementPredictor:
                 ))
             ])
 
-            # Cross-validate
-            scores = cross_val_score(pipeline, X, y, cv=5, scoring="accuracy")
-            logger.info(f"CV Accuracy: {scores.mean():.3f} ± {scores.std():.3f}")
+            class_counts = np.bincount(np.asarray(y, dtype=int))
+            cv_folds = min(5, int(class_counts.min())) if len(class_counts) > 1 else 0
+            if cv_folds >= 2:
+                scores = cross_val_score(pipeline, X, y, cv=cv_folds, scoring="accuracy")
+                logger.info(f"CV Accuracy: {scores.mean():.3f} ± {scores.std():.3f}")
 
             pipeline.fit(X, y)
             self.model = pipeline
@@ -153,6 +110,10 @@ class PlacementPredictor:
         except ImportError:
             logger.error("scikit-learn not installed. Run: pip install scikit-learn joblib")
             raise
+
+    def is_ready(self) -> bool:
+        """Return whether a trained model is in memory or available on disk."""
+        return self._trained or self.load()
 
     def load(self) -> bool:
         """Load trained model from disk"""
@@ -182,10 +143,9 @@ class PlacementPredictor:
         """
         if not self._trained:
             if not self.load():
-                logger.info("Model not trained. Training with synthetic data...")
-                self.train()
+                raise RuntimeError("No historical placement model has been trained yet")
 
-        features = np.array([self._extract_features(profile)])
+        features = np.array([self.extract_features(profile)])
 
         try:
             proba = self.model.predict_proba(features)[0]
@@ -211,7 +171,7 @@ class PlacementPredictor:
                 "risk_level": risk_level,
                 "confidence": confidence,
                 "feature_importance": importances,
-                "raw_features": dict(zip(self.FEATURE_NAMES, self._extract_features(profile))),
+                "raw_features": dict(zip(self.FEATURE_NAMES, self.extract_features(profile))),
             }
         except Exception as e:
             logger.error(f"Prediction error: {e}")

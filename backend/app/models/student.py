@@ -43,7 +43,6 @@ class StudentProfileBase(BaseModel):
 
 
 class StudentProfileCreate(StudentProfileBase):
-    user_id: uuid.UUID
     student_id: Optional[str] = None
     email: str
 
@@ -55,6 +54,7 @@ class StudentProfileUpdate(StudentProfileBase):
 class StudentProfileResponse(StudentProfileBase):
     id: uuid.UUID
     user_id: uuid.UUID
+    university_id: Optional[uuid.UUID] = None
     student_id: Optional[str] = None
     email: Optional[str] = None
     profile_completion: int = 0

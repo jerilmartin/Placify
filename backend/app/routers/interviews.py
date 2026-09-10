@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from app.models.interview import (
     InterviewCreate, InterviewAnswer, InterviewResponse, InterviewFeedback
 )
-from app.middleware.auth import get_current_user
+from app.middleware.auth import require_student
 from app.database import get_supabase
 from app.services.gemini_service import (
     generate_interview_questions, evaluate_interview_answer, generate_interview_summary
@@ -19,18 +19,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _get_student_profile(supabase, user_id):
+    profile = supabase.table("student_profiles").select("*") \
+        .eq("user_id", str(user_id)).limit(1).execute()
+    if not profile.data:
+        raise HTTPException(status_code=404, detail="Complete your profile first")
+    return profile.data[0]
+
+
+def _get_owned_interview(supabase, interview_id, user_id):
+    profile = _get_student_profile(supabase, user_id)
+    interview = supabase.table("interviews").select("*") \
+        .eq("id", str(interview_id)) \
+        .eq("student_id", profile["id"]) \
+        .limit(1).execute()
+    if not interview.data:
+        raise HTTPException(status_code=404, detail="Interview session not found")
+    return interview.data[0]
+
+
 @router.post("/start", response_model=InterviewResponse, status_code=201)
-async def start_interview(data: InterviewCreate, current_user=Depends(get_current_user)):
+async def start_interview(data: InterviewCreate, current_user=Depends(require_student)):
     """
     Start an AI mock interview session.
     Gemini generates contextual questions based on job/role and student profile.
     """
     supabase = get_supabase()
     try:
-        profile = supabase.table("student_profiles") \
-            .select("*").eq("user_id", str(current_user.id)).single().execute()
-        if not profile.data:
-            raise HTTPException(status_code=404, detail="Complete your profile first")
+        profile = _get_student_profile(supabase, current_user.id)
 
         # Get job context if provided
         job_context = None
@@ -66,7 +82,7 @@ async def start_interview(data: InterviewCreate, current_user=Depends(get_curren
 
         # Generate first question with Gemini
         questions = await generate_interview_questions(
-            profile=profile.data,
+            profile=profile,
             job=job_context,
             interview_type=data.interview_type,
             difficulty=data.difficulty,
@@ -79,7 +95,7 @@ async def start_interview(data: InterviewCreate, current_user=Depends(get_curren
         # DB table 'interviews' columns: id, student_id, job_id, interview_type, difficulty, status, questions_asked, responses, feedback
         # Note: current_question does not exist as a column in DB table
         payload = {
-            "student_id": profile.data["id"],
+            "student_id": profile["id"],
             "job_id": valid_job_id,
             "interview_type": db_type,
             "difficulty": data.difficulty,
@@ -103,29 +119,26 @@ async def start_interview(data: InterviewCreate, current_user=Depends(get_curren
 
 
 @router.post("/answer")
-async def submit_answer(data: InterviewAnswer, current_user=Depends(get_current_user)):
+async def submit_answer(data: InterviewAnswer, current_user=Depends(require_student)):
     """
     Submit an answer and get AI evaluation + next question.
     Returns: score, feedback, next question (or completion signal)
     """
     supabase = get_supabase()
     try:
-        interview = supabase.table("interviews") \
-            .select("*").eq("id", str(data.interview_id)).single().execute()
-        if not interview.data:
-            raise HTTPException(status_code=404, detail="Interview session not found")
-        if interview.data["status"] != "active":
+        interview = _get_owned_interview(supabase, data.interview_id, current_user.id)
+        if interview["status"] != "active":
             raise HTTPException(status_code=400, detail="Interview session is not active")
 
         # Evaluate answer with Gemini
         evaluation = await evaluate_interview_answer(
             question=data.question,
             answer=data.answer,
-            interview_type=interview.data["interview_type"],
+            interview_type=interview["interview_type"],
         )
 
         # Update responses
-        responses = interview.data.get("responses") or []
+        responses = interview.get("responses") or []
         responses.append({
             "question": data.question,
             "answer": data.answer,
@@ -133,7 +146,7 @@ async def submit_answer(data: InterviewAnswer, current_user=Depends(get_current_
             "evaluation": evaluation,
         })
 
-        questions_asked = interview.data.get("questions_asked") or []
+        questions_asked = interview.get("questions_asked") or []
         next_question = None
         is_complete = data.question_index >= len(questions_asked) - 1
 
@@ -163,16 +176,12 @@ async def submit_answer(data: InterviewAnswer, current_user=Depends(get_current_
 
 
 @router.post("/{interview_id}/complete", response_model=InterviewFeedback)
-async def complete_interview(interview_id: uuid.UUID, current_user=Depends(get_current_user)):
+async def complete_interview(interview_id: uuid.UUID, current_user=Depends(require_student)):
     """Generate comprehensive interview feedback report"""
     supabase = get_supabase()
     try:
-        interview = supabase.table("interviews") \
-            .select("*").eq("id", str(interview_id)).single().execute()
-        if not interview.data:
-            raise HTTPException(status_code=404, detail="Interview not found")
-
-        feedback = await generate_interview_summary(interview.data)
+        interview = _get_owned_interview(supabase, interview_id, current_user.id)
+        feedback = await generate_interview_summary(interview)
 
         supabase.table("interviews").update({
             "feedback": feedback,
@@ -188,7 +197,7 @@ async def complete_interview(interview_id: uuid.UUID, current_user=Depends(get_c
 
 
 @router.get("/", response_model=list[InterviewResponse])
-async def list_interviews(current_user=Depends(get_current_user)):
+async def list_interviews(current_user=Depends(require_student)):
     """List all interview sessions for current student"""
     supabase = get_supabase()
     try:

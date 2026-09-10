@@ -1,7 +1,7 @@
 """Analytics router — platform-wide insights"""
 
 from fastapi import APIRouter, HTTPException, Depends
-from app.middleware.auth import get_current_user
+from app.middleware.auth import require_role, require_student
 from app.database import get_supabase
 import logging
 
@@ -10,7 +10,7 @@ router = APIRouter()
 
 
 @router.get("/student/overview")
-async def student_dashboard_stats(current_user=Depends(get_current_user)):
+async def student_dashboard_stats(current_user=Depends(require_student)):
     """Get student dashboard stats: applications, matches, interview score, profile strength"""
     supabase = get_supabase()
     try:
@@ -66,21 +66,60 @@ async def student_dashboard_stats(current_user=Depends(get_current_user)):
 
 
 @router.get("/platform/overview")
-async def platform_overview(current_user=Depends(get_current_user)):
-    """Platform-wide stats (admin/university view)"""
+async def platform_overview(
+    current_user=Depends(require_role("admin", "university", "placement_officer")),
+):
+    """Platform stats for admins, tenant-scoped stats for universities."""
     supabase = get_supabase()
     try:
+        if current_user.role != "admin":
+            university = supabase.table("university_profiles").select("id") \
+                .eq("user_id", str(current_user.id)).limit(1).execute()
+            if not university.data:
+                return {
+                    "total_students": 0, "active_jobs": 0,
+                    "total_applications": 0, "total_offers": 0,
+                    "placement_rate": 0,
+                }
+            university_id = university.data[0]["id"]
+            student_rows = supabase.table("student_profiles").select("id") \
+                .eq("university_id", university_id).execute()
+            student_ids = [row["id"] for row in (student_rows.data or [])]
+            jobs = supabase.table("jobs").select("id", count="exact") \
+                .eq("status", "active").eq("university_id", university_id).execute()
+            if not student_ids:
+                return {
+                    "total_students": 0, "active_jobs": jobs.count or 0,
+                    "total_applications": 0, "total_offers": 0,
+                    "placement_rate": 0,
+                }
+            applications = supabase.table("applications").select("id", count="exact") \
+                .in_("student_id", student_ids).execute()
+            offers = supabase.table("applications").select("id", count="exact") \
+                .in_("student_id", student_ids).eq("status", "offered").execute()
+            total_students = len(student_ids)
+            offer_count = offers.count or 0
+            return {
+                "total_students": total_students,
+                "active_jobs": jobs.count or 0,
+                "total_applications": applications.count or 0,
+                "total_offers": offer_count,
+                "placement_rate": round((offer_count / total_students * 100) if total_students else 0, 1),
+            }
+
         students = supabase.table("student_profiles").select("id", count="exact").execute()
         jobs = supabase.table("jobs").select("id", count="exact").eq("status", "active").execute()
         applications = supabase.table("applications").select("id", count="exact").execute()
         offers = supabase.table("applications").select("id", count="exact").eq("status", "offered").execute()
 
+        total_students = students.count or 0
+        offer_count = offers.count or 0
         return {
-            "total_students": students.count or 0,
+            "total_students": total_students,
             "active_jobs": jobs.count or 0,
             "total_applications": applications.count or 0,
-            "total_offers": offers.count or 0,
-            "placement_rate": round((offers.count / students.count * 100) if students.count else 0, 1),
+            "total_offers": offer_count,
+            "placement_rate": round((offer_count / total_students * 100) if total_students else 0, 1),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch platform stats")

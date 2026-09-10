@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Best-effort: repair missing profile row for accounts stuck without one
       try {
         await ensureProfileExists(data.session.access_token, data.session.user);
-      } catch (_) {
+      } catch {
         // Non-fatal
       }
     }
@@ -159,10 +159,22 @@ export function useAuth() {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 async function buildUserFromSession(
-  supaUser: { id: string; email?: string; user_metadata?: Record<string, unknown> },
-  _token: string
+  supaUser: { id: string; email?: string; user_metadata?: Record<string, unknown>; app_metadata?: Record<string, unknown> },
+  token: string
 ): Promise<User> {
-  const role = (supaUser.user_metadata?.role as UserRole) || "student";
+  try {
+    const response = await fetch(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (response.ok) {
+      const user = await response.json() as User;
+      return user;
+    }
+  } catch {
+    // Fall back to signed, server-controlled app metadata if the API is offline.
+  }
+
+  const role = (supaUser.app_metadata?.role as UserRole) || "student";
   const full_name = (supaUser.user_metadata?.full_name as string) || supaUser.email || "";
 
   return {
@@ -180,9 +192,8 @@ async function buildUserFromSession(
  */
 async function ensureProfileExists(
   accessToken: string,
-  supaUser: { id: string; email?: string; user_metadata?: Record<string, unknown> }
+  supaUser: { id: string; email?: string; user_metadata?: Record<string, unknown>; app_metadata?: Record<string, unknown> }
 ) {
-  const role = (supaUser.user_metadata?.role as UserRole) || "student";
   const full_name = (supaUser.user_metadata?.full_name as string) || supaUser.email || "";
 
   await fetch(`${API_URL}/api/auth/repair-profile`, {
@@ -191,6 +202,6 @@ async function ensureProfileExists(
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ role, full_name, email: supaUser.email }),
+    body: JSON.stringify({ full_name, email: supaUser.email }),
   });
 }

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from app.models.job import JobCreate, JobUpdate, JobResponse, JobMatchResponse
-from app.middleware.auth import get_current_user, require_recruiter
+from app.middleware.auth import get_current_user, require_recruiter, require_student
 from app.database import get_supabase
 from app.services.matching_service import compute_job_matches
 import logging
@@ -39,23 +39,27 @@ async def list_jobs(
 
 
 @router.get("/drives")
-async def list_placement_drives(current_user=Depends(get_current_user)):
+async def list_placement_drives(current_user=Depends(require_student)):
     """
     Return all active/upcoming placement drives for the student portal.
     Uses service-role to bypass the student-university RLS match issue.
     """
     supabase = get_supabase()
     try:
-        # Get student profile for applied drives lookup
+        # Resolve the student's tenant before using the service-role client.
         sp_res = supabase.table("student_profiles") \
-            .select("id") \
+            .select("id,university_id") \
             .eq("user_id", str(current_user.id)) \
             .limit(1).execute()
-        student_profile_id = sp_res.data[0]["id"] if sp_res.data else None
+        if not sp_res.data or not sp_res.data[0].get("university_id"):
+            return []
+        student_profile_id = sp_res.data[0]["id"]
+        university_id = sp_res.data[0]["university_id"]
 
-        # Fetch all active/upcoming drives — service-role bypasses RLS
+        # Explicit tenant filter is required because this client bypasses RLS.
         drives_res = supabase.table("placement_drives") \
             .select("*") \
+            .eq("university_id", university_id) \
             .in_("status", ["upcoming", "active"]) \
             .order("created_at", desc=True) \
             .execute()
@@ -82,7 +86,7 @@ async def list_placement_drives(current_user=Depends(get_current_user)):
 
 
 @router.get("/matches", response_model=list[JobMatchResponse])
-async def get_job_matches(current_user=Depends(get_current_user)):
+async def get_job_matches(current_user=Depends(require_student)):
     """
     Get AI-powered job matches for current student.
     Uses: Sentence Transformers + FAISS (ML) or keyword overlap (fallback)
@@ -127,7 +131,13 @@ async def get_job(job_id: uuid.UUID, current_user=Depends(get_current_user)):
         result = supabase.table("jobs").select("*").eq("id", str(job_id)).limit(1).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Job not found")
-        return result.data[0]
+        job = result.data[0]
+        if job.get("status") != "active" and not (
+            current_user.role == "recruiter"
+            and job.get("recruiter_id") == str(current_user.id)
+        ):
+            raise HTTPException(status_code=404, detail="Job not found")
+        return job
     except HTTPException:
         raise
     except Exception as e:

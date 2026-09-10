@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.models.user import UserCreate, UserLogin, UserResponse, TokenResponse, RefreshTokenRequest
 from app.database import get_supabase_anon, get_supabase
-from app.middleware.auth import get_current_user
+from app.middleware.auth import get_current_user, resolve_user_role
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,23 @@ async def register(user_data: UserCreate):
 
         # Create role-specific profile row using service_role (bypasses RLS)
         try:
-            _insert_profile(supabase_admin, user_id, role, full_name, email)
+            try:
+                supabase_admin.auth.admin.update_user_by_id(
+                    user_id,
+                    {"app_metadata": {"role": role}},
+                )
+            except Exception as metadata_err:
+                # The profile row below remains an authoritative legacy-role
+                # fallback even if metadata updating is temporarily unavailable.
+                logger.warning("Could not set app role for %s: %s", user_id, metadata_err)
+            _insert_profile(
+                supabase_admin,
+                user_id,
+                role,
+                full_name,
+                email,
+                university=user_data.university,
+            )
         except Exception as profile_err:
             logger.error(f"Profile row creation failed for {user_id} ({role}): {profile_err}")
             # Don't block registration if profile insert fails
@@ -105,7 +121,7 @@ async def login(credentials: UserLogin):
                 id=auth_response.user.id,
                 email=auth_response.user.email,
                 full_name=user_meta.get("full_name", ""),
-                role=user_meta.get("role", "student"),
+                role=resolve_user_role(auth_response.user),
                 created_at=auth_response.user.created_at,
             )
         )
@@ -145,7 +161,7 @@ async def refresh_token(body: RefreshTokenRequest):
                 id=auth_response.user.id,
                 email=auth_response.user.email,
                 full_name=user_meta.get("full_name", ""),
-                role=user_meta.get("role", "student"),
+                role=resolve_user_role(auth_response.user),
                 created_at=auth_response.user.created_at,
             )
         )
@@ -186,7 +202,14 @@ async def repair_profile(
         return {"status": "error", "message": str(e)}
 
 
-def _insert_profile(supabase_admin, user_id: str, role: str, full_name: str, email: str):
+def _insert_profile(
+    supabase_admin,
+    user_id: str,
+    role: str,
+    full_name: str,
+    email: str,
+    university: str | None = None,
+):
     """
     Insert or repair a profile row using the service-role client.
     The explicit existence check also works before the unique user_id migration
@@ -200,6 +223,17 @@ def _insert_profile(supabase_admin, user_id: str, role: str, full_name: str, ema
             "email": email,
             "profile_completion": 0,
         }
+        if university:
+            normalized_name = university.strip().casefold()
+            universities = supabase_admin.table("university_profiles") \
+                .select("id,name").execute()
+            matches = [
+                item for item in (universities.data or [])
+                if (item.get("name") or "").strip().casefold() == normalized_name
+            ]
+            payload["university"] = university.strip()
+            if len(matches) == 1:
+                payload["university_id"] = matches[0]["id"]
     elif role == "university":
         table_name = "university_profiles"
         payload = {

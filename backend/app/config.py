@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_name: str = "Campus Placement Management Platform"
     environment: str = "development"
     debug: bool = True
+    enable_demo_auth: bool = False
     secret_key: str = "changeme-use-a-strong-secret-in-production"
 
     # ── Supabase ──────────────────────────────────────────

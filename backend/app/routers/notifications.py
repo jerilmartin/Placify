@@ -38,7 +38,12 @@ async def list_notifications(
 async def mark_notification_read(notification_id: str, current_user=Depends(get_current_user)):
     """Mark a notification as read"""
     supabase = get_supabase()
-    supabase.table("notifications").update({"read": True}).eq("id", notification_id).execute()
+    result = supabase.table("notifications").update({"read": True}) \
+        .eq("id", notification_id) \
+        .eq("user_id", str(current_user.id)) \
+        .execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Notification not found")
     return {"message": "Notification marked as read"}
 
 

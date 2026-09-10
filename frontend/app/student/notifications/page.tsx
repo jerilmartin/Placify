@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { notificationsApi } from "@/lib/api";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Notification {
   id: string;
@@ -17,6 +19,7 @@ interface Notification {
 }
 
 export default function NotificationsPage() {
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread">("all");
@@ -35,8 +38,29 @@ export default function NotificationsPage() {
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    notificationsApi.list({ unread_only: false })
+      .then((res) => setNotifications(res.data || []))
+      .catch(() => toast.error("Could not load notifications"))
+      .finally(() => setLoading(false));
+    if (!user?.id) return;
+    const channel = supabase.channel(`notifications:${user.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, (payload) => {
+        setNotifications((items) => [payload.new as Notification, ...items]);
+        toast.info((payload.new as Notification).title);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id]);
+
+  const markRead = async (notification: Notification) => {
+    if (notification.read) return;
+    try {
+      await notificationsApi.markRead(notification.id);
+      setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, read: true } : item));
+    } catch {
+      toast.error("Could not mark notification as read");
+    }
+  };
 
   const handleFilter = (next: "all" | "unread") => {
     setFilter(next);
@@ -109,8 +133,9 @@ export default function NotificationsPage() {
               return (
                 <li
                   key={n.id}
+                  onClick={() => markRead(n)}
                   className={cn(
-                    "flex items-start gap-3 px-5 py-4 transition-colors hover:bg-elevated/60",
+                    "flex cursor-pointer items-start gap-3 px-5 py-4 transition-colors hover:bg-elevated/60",
                     !n.read && i === 0 && "bg-primary/[0.04]"
                   )}
                 >

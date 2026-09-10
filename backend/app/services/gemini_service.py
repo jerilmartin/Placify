@@ -580,6 +580,35 @@ async def recruiter_ai_search(query: str, supabase) -> dict:
 
 async def predict_placement_risk(profile: dict) -> dict:
     """Predict placement risk using rule-based + ML scoring"""
+    if settings.enable_ml_features:
+        try:
+            from ml.placement_predictor import get_predictor
+            result = get_predictor().predict(profile)
+            raw = result.get("raw_features", {})
+            result["factors"] = {
+                "skills": raw.get("skills_count", 0),
+                "cgpa": raw.get("cgpa", 0),
+                "projects": raw.get("projects_count", 0),
+                "experience": raw.get("work_experience_count", 0),
+                "backlogs": raw.get("active_backlogs", 0),
+                "mock_interview": raw.get("mock_interview_score", 0),
+            }
+            improvements = []
+            if raw.get("skills_count", 0) < 5:
+                improvements.append("Add role-relevant technical skills and demonstrate them in projects")
+            if raw.get("projects_count", 0) < 3:
+                improvements.append("Build and document at least three portfolio projects")
+            if raw.get("work_experience_count", 0) < 1:
+                improvements.append("Add an internship, freelance assignment, or practical experience")
+            if raw.get("active_backlogs", 0) > 0:
+                improvements.append("Prioritize clearing active backlogs")
+            if raw.get("mock_interview_score", 0) < 70:
+                improvements.append("Practice mock interviews and review the feedback")
+            result["top_improvements"] = improvements[:3]
+            result["model"] = "random_forest_v2"
+            return result
+        except Exception as exc:
+            logger.warning("ML placement prediction unavailable; using deterministic fallback: %s", exc)
     # This is the rule-based version; ML model overrides this when available
     skills_count = len(profile.get("skills") or [])
     cgpa = profile.get("cgpa") or 0
@@ -609,7 +638,7 @@ async def predict_placement_risk(profile: dict) -> dict:
     if not work_exp:
         improvements.append("Get an internship or relevant experience")
     if profile_completion < 80:
-        improvements.append("Complete your profile (currently {profile_completion}%)")
+        improvements.append(f"Complete your profile (currently {profile_completion}%)")
 
     return {
         "risk_level": risk_level,

@@ -5,7 +5,7 @@ import { MapPin, Mail, Phone, Globe, Pencil, GraduationCap, Sparkles, Save, X } 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/lib/supabase";
+import { studentsApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 const Github = (props: React.SVGProps<SVGSVGElement>) => (
@@ -36,6 +36,8 @@ interface ProfileData {
   cgpa: number | string;
   active_backlogs: number | string;
   skills: string[];
+  projects: Array<{ name: string; description: string; tech_stack: string[]; github_url?: string }>;
+  work_experience: Array<{ company: string; role: string; duration: string; description: string; skills_used: string[] }>;
   github_url: string;
   linkedin_url: string;
   portfolio_url: string;
@@ -46,7 +48,7 @@ const EMPTY: ProfileData = {
   full_name: "", email: "", phone: "", location: "", bio: "",
   university: "", course: "", graduation_year: "", cgpa: "",
   active_backlogs: 0, skills: [], github_url: "", linkedin_url: "",
-  portfolio_url: "", profile_completion: 0,
+  portfolio_url: "", profile_completion: 0, projects: [], work_experience: [],
 };
 
 export default function ProfilePage() {
@@ -63,13 +65,8 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      const { data, error } = await supabase
-        .from("student_profiles")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (error) console.error(error);
-      if (data) {
+      try {
+        const { data } = await studentsApi.getProfile();
         // Normalize null DB values → empty string so React controlled inputs don't error
         setProfile({
           ...EMPTY,
@@ -77,10 +74,15 @@ export default function ProfilePage() {
             Object.entries(data).map(([k, v]) => [k, v === null ? "" : v])
           ),
           skills: Array.isArray(data.skills) ? data.skills : [],
+          projects: Array.isArray(data.projects) ? data.projects : [],
+          work_experience: Array.isArray(data.work_experience) ? data.work_experience : [],
           profile_completion: data.profile_completion ?? 0,
         } as ProfileData);
+      } catch (error) {
+        console.error("Failed to load profile", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     load();
   }, [user]);
@@ -95,7 +97,7 @@ export default function ProfilePage() {
     return e;
   };
 
-  const openEdit = () => { setDraft({ ...profile }); setErrors({}); setEditing(true); };
+  const openEdit = () => { setDraft(structuredClone(profile)); setErrors({}); setEditing(true); };
   const cancelEdit = () => { setEditing(false); setErrors({}); };
 
   const saveProfile = async () => {
@@ -104,21 +106,20 @@ export default function ProfilePage() {
     setSaving(true);
     const payload = {
       ...draft,
-      user_id: user?.id,
       cgpa: draft.cgpa !== "" ? parseFloat(String(draft.cgpa)) : null,
       active_backlogs: draft.active_backlogs !== "" ? parseInt(String(draft.active_backlogs)) : 0,
       graduation_year: draft.graduation_year !== "" ? parseInt(String(draft.graduation_year)) : null,
       profile_completion: computeCompletion(draft),
-      updated_at: new Date().toISOString(),
     };
-    const { error } = await supabase.from("student_profiles").upsert(payload, { onConflict: "user_id" });
-    setSaving(false);
-    if (error) {
-      setToast({ type: "error", msg: "Failed to save. Please try again." });
-    } else {
-      setProfile({ ...draft, profile_completion: computeCompletion(draft) });
+    try {
+      await studentsApi.updateProfile(payload);
+      setProfile({ ...draft, skills: [...draft.skills], profile_completion: computeCompletion(draft) });
       setEditing(false);
       setToast({ type: "success", msg: "Profile saved successfully!" });
+    } catch {
+      setToast({ type: "error", msg: "Failed to save. Please try again." });
+    } finally {
+      setSaving(false);
     }
     setTimeout(() => setToast(null), 3000);
   };
@@ -129,6 +130,8 @@ export default function ProfilePage() {
     setSkillInput("");
   };
   const removeSkill = (s: string) => setDraft((p) => ({ ...p, skills: p.skills.filter((x) => x !== s) }));
+  const addProject = () => setDraft((p) => ({ ...p, projects: [...p.projects, { name: "", description: "", tech_stack: [] }] }));
+  const addExperience = () => setDraft((p) => ({ ...p, work_experience: [...p.work_experience, { company: "", role: "", duration: "", description: "", skills_used: [] }] }));
 
   const f = editing ? draft : profile;
   const initials = f.full_name ? f.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "?";
@@ -279,6 +282,32 @@ export default function ProfilePage() {
               ))}
             </div>
           </section>
+          <section className="rounded-xl border border-border bg-surface p-5">
+            <div className="mb-4 flex items-center justify-between"><h2 className="text-[14px] font-medium">Projects</h2><Button type="button" size="sm" variant="outline" onClick={addProject}>Add project</Button></div>
+            <div className="space-y-3">
+              {draft.projects.map((project, index) => (
+                <div key={index} className="grid gap-3 rounded-lg border border-border bg-background p-3 sm:grid-cols-2">
+                  <Input value={project.name || ""} placeholder="Project name" onChange={(event) => setDraft((p) => ({ ...p, projects: p.projects.map((item, i) => i === index ? { ...item, name: event.target.value } : item) }))} />
+                  <Input value={project.github_url || ""} placeholder="GitHub URL" onChange={(event) => setDraft((p) => ({ ...p, projects: p.projects.map((item, i) => i === index ? { ...item, github_url: event.target.value } : item) }))} />
+                  <Input value={(project.tech_stack || []).join(", ")} placeholder="Technologies, comma separated" onChange={(event) => setDraft((p) => ({ ...p, projects: p.projects.map((item, i) => i === index ? { ...item, tech_stack: event.target.value.split(",").map((v) => v.trim()).filter(Boolean) } : item) }))} />
+                  <Input value={project.description || ""} placeholder="Outcome and measurable impact" onChange={(event) => setDraft((p) => ({ ...p, projects: p.projects.map((item, i) => i === index ? { ...item, description: event.target.value } : item) }))} />
+                  <Button type="button" size="sm" variant="ghost" className="sm:col-span-2 text-destructive" onClick={() => setDraft((p) => ({ ...p, projects: p.projects.filter((_, i) => i !== index) }))}>Remove project</Button>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section className="rounded-xl border border-border bg-surface p-5">
+            <div className="mb-4 flex items-center justify-between"><h2 className="text-[14px] font-medium">Work experience</h2><Button type="button" size="sm" variant="outline" onClick={addExperience}>Add experience</Button></div>
+            <div className="space-y-3">
+              {draft.work_experience.map((experience, index) => (
+                <div key={index} className="grid gap-3 rounded-lg border border-border bg-background p-3 sm:grid-cols-2">
+                  {(["company", "role", "duration", "description"] as const).map((field) => <Input key={field} value={experience[field] || ""} placeholder={field.replace("_", " ")} onChange={(event) => setDraft((p) => ({ ...p, work_experience: p.work_experience.map((item, i) => i === index ? { ...item, [field]: event.target.value } : item) }))} />)}
+                  <Input value={(experience.skills_used || []).join(", ")} placeholder="Skills used, comma separated" onChange={(event) => setDraft((p) => ({ ...p, work_experience: p.work_experience.map((item, i) => i === index ? { ...item, skills_used: event.target.value.split(",").map((v) => v.trim()).filter(Boolean) } : item) }))} />
+                  <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setDraft((p) => ({ ...p, work_experience: p.work_experience.filter((_, i) => i !== index) }))}>Remove experience</Button>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
       ) : (
         /* ── View Mode ── */
@@ -289,6 +318,14 @@ export default function ProfilePage() {
               <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">
                 {profile.bio || "No bio added yet. Click Edit profile to add one."}
               </p>
+            </section>
+            <section className="rounded-xl border border-border bg-surface p-5">
+              <h2 className="text-[14px] font-medium">Projects</h2>
+              <div className="mt-3 space-y-3">{profile.projects.length ? profile.projects.map((project, index) => <div key={`${project.name}-${index}`} className="rounded-lg border border-border p-3"><div className="font-medium">{project.name}</div><p className="mt-1 text-xs text-muted-foreground">{project.description}</p><div className="mt-2 text-[11px] text-primary">{(project.tech_stack || []).join(" · ")}</div></div>) : <p className="text-xs text-muted-foreground">No projects added yet.</p>}</div>
+            </section>
+            <section className="rounded-xl border border-border bg-surface p-5">
+              <h2 className="text-[14px] font-medium">Work experience</h2>
+              <div className="mt-3 space-y-3">{profile.work_experience.length ? profile.work_experience.map((experience, index) => <div key={`${experience.company}-${index}`} className="rounded-lg border border-border p-3"><div className="font-medium">{experience.role} · {experience.company}</div><div className="text-[11px] text-muted-foreground">{experience.duration}</div><p className="mt-1 text-xs text-muted-foreground">{experience.description}</p></div>) : <p className="text-xs text-muted-foreground">No work experience added yet.</p>}</div>
             </section>
             <section className="rounded-xl border border-border bg-surface p-5">
               <div className="mb-3 flex items-center gap-2">
@@ -342,5 +379,6 @@ function computeCompletion(p: ProfileData): number {
   const fields = [p.full_name, p.email, p.phone, p.location, p.bio, p.university, p.course, p.graduation_year, p.cgpa, p.github_url, p.linkedin_url];
   const filled = fields.filter((v) => v != null && String(v).trim() !== "").length;
   const hasSkills = p.skills?.length > 0 ? 1 : 0;
-  return Math.round(((filled + hasSkills) / (fields.length + 1)) * 100);
+  const portfolioSections = (p.projects.length > 0 ? 1 : 0) + (p.work_experience.length > 0 ? 1 : 0);
+  return Math.round(((filled + hasSkills + portfolioSections) / (fields.length + 3)) * 100);
 }

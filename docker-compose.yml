@@ -16,7 +16,8 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - JWT_SECRET=${JWT_SECRET}
-      - ENABLE_ML_FEATURES=false
+      - ENABLE_DEMO_AUTH=false
+      - ENABLE_ML_FEATURES=true
     env_file:
       - .env
     restart: always
@@ -33,7 +34,9 @@ services:
       - PORT=3000
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - NEXT_PUBLIC_API_URL=http://backend:8000
+      # NEXT_PUBLIC values execute in the browser, where the Compose service
+      # hostname "backend" is not resolvable from the host machine.
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - backend
     restart: always

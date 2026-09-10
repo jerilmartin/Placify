@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { UploadCloud, FileText, Sparkles, Download, Share2, Check, AlertCircle, Loader2, UserCheck, MapPin, Briefcase, Code2, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { resumesApi } from "@/lib/api";
+import { jobsApi, resumesApi } from "@/lib/api";
 import { toast } from "sonner";
 
 export default function ResumePage() {
@@ -17,6 +17,10 @@ export default function ResumePage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [targets, setTargets] = useState<{ id: string; label: string }[]>([]);
+  const [targetId, setTargetId] = useState("");
+  const [coverLetter, setCoverLetter] = useState("");
+  const [generatingCover, setGeneratingCover] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchAtsScore = async (resumeId: string) => {
@@ -46,8 +50,42 @@ export default function ResumePage() {
   };
 
   useEffect(() => {
-    fetchResumes();
+    resumesApi.list().then(async (res) => {
+      const items = res.data || [];
+      setResumesList(items);
+      if (items.length > 0) {
+        const latest = items[0];
+        setActiveResume(latest);
+        if (latest.id) await fetchAtsScore(latest.id);
+      }
+    }).catch((err) => console.warn("Failed to fetch resumes:", err));
+    Promise.all([jobsApi.list(), jobsApi.listDrives()]).then(([jobs, drives]) => {
+      const items = [
+        ...(jobs.data || []).map((job: any) => ({ id: job.id, label: `${job.title} · ${job.company}` })),
+        ...(drives.data || []).map((drive: any) => ({ id: drive.id, label: `${drive.role || drive.title} · ${drive.company_name}` })),
+      ];
+      setTargets(items);
+      setTargetId(items[0]?.id || "");
+    }).catch(() => setTargets([]));
   }, []);
+
+  const handleGenerateCoverLetter = async () => {
+    const resumeId = activeResume?.id || activeResume?.resume_id;
+    if (!resumeId || !targetId) {
+      toast.error("Select a resume and target role first");
+      return;
+    }
+    setGeneratingCover(true);
+    try {
+      const { data } = await resumesApi.generateCoverLetter(resumeId, targetId);
+      setCoverLetter(data.cover_letter || "");
+      toast.success("Cover letter generated");
+    } catch {
+      toast.error("Could not generate the cover letter");
+    } finally {
+      setGeneratingCover(false);
+    }
+  };
 
   const handleImprove = async () => {
     const resumeId = activeResume?.id || activeResume?.resume_id;
@@ -460,6 +498,39 @@ export default function ResumePage() {
                   </li>
                 ))}
               </ul>
+              {atsScore?.specific_improvements?.length > 0 && (
+                <div className="mt-5 space-y-3 border-t border-border pt-4">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Suggested rewrites</div>
+                  {atsScore.specific_improvements.map((item: { section?: string; current?: string; suggestion?: string }, index: number) => (
+                    <div key={`${item.section}-${index}`} className="rounded-lg border border-border bg-background p-3 text-xs">
+                      <div className="font-semibold text-primary">{item.section || "Resume section"}</div>
+                      {item.current && <div className="mt-2 text-muted-foreground line-through decoration-destructive/60">{item.current}</div>}
+                      {item.suggestion && <div className="mt-2 border-l-2 border-success pl-2 text-foreground">{item.suggestion}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeResume && (
+            <div className="rounded-xl border border-border bg-surface p-5">
+              <h3 className="text-[14px] font-medium">Tailored cover letter</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Generated from this resume and the selected role.</p>
+              <select value={targetId} onChange={(event) => setTargetId(event.target.value)} className="mt-3 h-9 w-full rounded-md border border-border bg-background px-2 text-xs">
+                <option value="">Select a job or drive</option>
+                {targets.map((target) => <option key={target.id} value={target.id}>{target.label}</option>)}
+              </select>
+              <Button className="mt-3 w-full" size="sm" disabled={!targetId || generatingCover} onClick={handleGenerateCoverLetter}>
+                {generatingCover ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FileText className="mr-1.5 h-3.5 w-3.5" />}
+                {generatingCover ? "Generating…" : "Generate cover letter"}
+              </Button>
+              {coverLetter && (
+                <div className="mt-3">
+                  <textarea value={coverLetter} onChange={(event) => setCoverLetter(event.target.value)} rows={12} className="w-full resize-y rounded-md border border-border bg-background p-3 text-xs leading-relaxed" />
+                  <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => navigator.clipboard.writeText(coverLetter).then(() => toast.success("Copied to clipboard"))}>Copy cover letter</Button>
+                </div>
+              )}
             </div>
           )}
 

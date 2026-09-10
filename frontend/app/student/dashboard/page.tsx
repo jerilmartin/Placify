@@ -455,7 +455,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* AI Placement Risk + Profile Strength */}
+      {/* Placement outlook + profile strength */}
       {(placementRisk || profileStrength) && (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {/* Placement Risk */}
@@ -466,7 +466,7 @@ export default function Dashboard() {
               : 'border-destructive/30 bg-destructive/5'
             }`}>
               <div className="flex items-center justify-between">
-                <div className="text-[11px] uppercase tracking-wider font-medium opacity-70">AI Placement Risk</div>
+                <div className="text-[11px] uppercase tracking-wider font-medium opacity-70">Placement outlook</div>
                 <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${
                   placementRisk.risk_level === 'Low' ? 'bg-success/15 text-success'
                   : placementRisk.risk_level === 'Medium' ? 'bg-warning/15 text-warning'
@@ -480,6 +480,16 @@ export default function Dashboard() {
                 <span className="text-muted-foreground">% placement probability</span>
               </div>
               <Progress value={placementRisk.probability ?? placementRisk.placement_probability ?? 0} className="mt-3 h-1.5" />
+              {placementRisk.factors && (
+                <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
+                  {Object.entries(placementRisk.factors as Record<string, number>).map(([label, value]) => (
+                    <div key={label} className="rounded-md border border-border/60 bg-background/50 px-2 py-1.5">
+                      <span className="capitalize text-muted-foreground">{label.replaceAll("_", " ")}</span>
+                      <span className="float-right font-medium">{Number(value).toFixed(1)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {(placementRisk.top_improvements?.length > 0 || placementRisk.tips?.length > 0) && (
                 <ul className="mt-4 space-y-1.5">
                   {(placementRisk.top_improvements || placementRisk.tips || []).slice(0, 3).map((tip: string, i: number) => (
@@ -497,7 +507,7 @@ export default function Dashboard() {
           {profileStrength && (
             <div className="rounded-xl border border-border bg-surface p-5">
               <div className="flex items-center justify-between">
-                <div className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground">AI Profile Strength</div>
+                <div className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Profile strength</div>
                 <div className="flex items-center gap-2">
                   {profileStrength.level && (
                     <span className="text-[11px] font-medium text-muted-foreground">{profileStrength.level}</span>

@@ -5,26 +5,56 @@ JWT verification using Supabase Auth tokens
 
 from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.database import get_supabase_anon
+from app.database import get_supabase, get_supabase_anon
 from app.config import settings
 import logging
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
 
 
 class CurrentUser:
-    def __init__(self, id, email, role, full_name=""):
+    def __init__(self, id, email, role, full_name="", created_at=None):
         self.id = id
         self.email = email
         self.role = role
         self.full_name = full_name
+        self.created_at = created_at or datetime.now(timezone.utc)
+
+
+def resolve_user_role(user) -> str:
+    """Resolve authorization role from server-controlled metadata or DB state."""
+    app_role = (getattr(user, "app_metadata", None) or {}).get("role")
+    allowed_roles = {
+        "student", "recruiter", "university", "mentor", "admin",
+        "placement_officer",
+    }
+    if app_role in allowed_roles:
+        return app_role
+
+    # Backward compatibility for accounts created before app_metadata roles:
+    # verify the role against a service-side profile row. Never authorize from
+    # user_metadata, which account owners can edit themselves.
+    supabase = get_supabase()
+    user_id = str(user.id)
+    profile_roles = (
+        ("university_profiles", "university"),
+        ("recruiter_profiles", "recruiter"),
+        ("mentor_profiles", "mentor"),
+        ("student_profiles", "student"),
+    )
+    for table, role in profile_roles:
+        result = supabase.table(table).select("id").eq("user_id", user_id).limit(1).execute()
+        if result.data:
+            return role
+    return "student"
 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> CurrentUser:
     """Verify Supabase JWT token and return current user"""
     if not credentials:
-        if settings.environment == "development":
+        if settings.environment == "development" and settings.enable_demo_auth:
             return CurrentUser(
                 id="00000000-0000-0000-0000-000000000001",
                 email="aarav.s@iitb.ac.in",
@@ -43,13 +73,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     try:
         user_response = supabase.auth.get_user(token)
         if not user_response or not user_response.user:
-            if settings.environment == "development":
-                return CurrentUser(
-                    id="00000000-0000-0000-0000-000000000001",
-                    email="aarav.s@iitb.ac.in",
-                    role="student",
-                    full_name="Aarav Sharma",
-                )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token"
@@ -61,20 +84,14 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         return CurrentUser(
             id=user.id,
             email=user.email,
-            role=user_meta.get("role", "student"),
+            role=resolve_user_role(user),
             full_name=user_meta.get("full_name", ""),
+            created_at=user.created_at,
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Auth error: {e}")
-        if settings.environment == "development":
-            return CurrentUser(
-                id="00000000-0000-0000-0000-000000000001",
-                email="aarav.s@iitb.ac.in",
-                role="student",
-                full_name="Aarav Sharma",
-            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed"

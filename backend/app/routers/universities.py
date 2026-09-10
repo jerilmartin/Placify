@@ -177,6 +177,33 @@ async def list_recruiters(current_user=Depends(require_university)):
     return result.data or []
 
 
+@router.get("/students")
+async def list_university_students(current_user=Depends(require_university)):
+    """List only students linked to the authenticated university."""
+    supabase = get_supabase()
+    university = (
+        supabase.table("university_profiles")
+        .select("id")
+        .eq("user_id", str(current_user.id))
+        .limit(1)
+        .execute()
+    )
+    if not university.data:
+        raise HTTPException(status_code=404, detail="University profile not found")
+
+    result = (
+        supabase.table("student_profiles")
+        .select(
+            "id,full_name,email,course,cgpa,active_backlogs,graduation_year,"
+            "profile_completion,skills"
+        )
+        .eq("university_id", university.data[0]["id"])
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
 @router.get("/drive-requests")
 async def list_drive_requests(
     status_filter: str | None = None,

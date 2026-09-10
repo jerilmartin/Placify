@@ -5,17 +5,16 @@ from app.models.mentor import (
     MentorProfileCreate, MentorProfileUpdate, MentorProfileResponse,
     MentorSessionCreate, MentorSessionResponse
 )
-from app.middleware.auth import get_current_user
+from app.middleware.auth import require_mentor, require_role, require_student
 from app.database import get_supabase
 import logging
-import uuid
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("/", response_model=list[MentorProfileResponse])
-async def list_mentors(current_user=Depends(get_current_user)):
+async def list_mentors(current_user=Depends(require_student)):
     """Browse available mentors"""
     supabase = get_supabase()
     result = supabase.table("mentor_profiles").select("*").eq("verified", True).execute()
@@ -23,7 +22,7 @@ async def list_mentors(current_user=Depends(get_current_user)):
 
 
 @router.get("/profile", response_model=MentorProfileResponse)
-async def get_my_mentor_profile(current_user=Depends(get_current_user)):
+async def get_my_mentor_profile(current_user=Depends(require_mentor)):
     supabase = get_supabase()
     result = supabase.table("mentor_profiles").select("*").eq("user_id", str(current_user.id)).single().execute()
     if not result.data:
@@ -32,7 +31,7 @@ async def get_my_mentor_profile(current_user=Depends(get_current_user)):
 
 
 @router.post("/profile", response_model=MentorProfileResponse, status_code=201)
-async def create_mentor_profile(data: MentorProfileCreate, current_user=Depends(get_current_user)):
+async def create_mentor_profile(data: MentorProfileCreate, current_user=Depends(require_mentor)):
     supabase = get_supabase()
     payload = data.model_dump()
     payload["user_id"] = str(current_user.id)
@@ -41,22 +40,41 @@ async def create_mentor_profile(data: MentorProfileCreate, current_user=Depends(
 
 
 @router.post("/sessions", response_model=MentorSessionResponse, status_code=201)
-async def book_session(data: MentorSessionCreate, current_user=Depends(get_current_user)):
+async def book_session(data: MentorSessionCreate, current_user=Depends(require_student)):
     """Book a mentoring session"""
     supabase = get_supabase()
+    student = supabase.table("student_profiles").select("id") \
+        .eq("user_id", str(current_user.id)).limit(1).execute()
+    if not student.data:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    mentor = supabase.table("mentor_profiles").select("id") \
+        .eq("id", str(data.mentor_id)).eq("verified", True).limit(1).execute()
+    if not mentor.data:
+        raise HTTPException(status_code=404, detail="Verified mentor not found")
     payload = data.model_dump()
+    payload["student_id"] = student.data[0]["id"]
     payload["scheduled_at"] = data.scheduled_at.isoformat()
     result = supabase.table("mentor_sessions").insert(payload).execute()
     return result.data[0]
 
 
 @router.get("/sessions", response_model=list[MentorSessionResponse])
-async def list_sessions(current_user=Depends(get_current_user)):
+async def list_sessions(current_user=Depends(require_role("student", "mentor"))):
     """List sessions for current user (mentor or student)"""
     supabase = get_supabase()
+    if current_user.role == "mentor":
+        profile = supabase.table("mentor_profiles").select("id") \
+            .eq("user_id", str(current_user.id)).limit(1).execute()
+        profile_field = "mentor_id"
+    else:
+        profile = supabase.table("student_profiles").select("id") \
+            .eq("user_id", str(current_user.id)).limit(1).execute()
+        profile_field = "student_id"
+    if not profile.data:
+        return []
     result = supabase.table("mentor_sessions") \
         .select("*") \
-        .or_(f"mentor_id.eq.{current_user.id},student_id.eq.{current_user.id}") \
+        .eq(profile_field, profile.data[0]["id"]) \
         .order("scheduled_at") \
         .execute()
     return result.data or []

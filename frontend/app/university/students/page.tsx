@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, GraduationCap, Mail, Phone, BookOpen, Award, CheckCircle2, XCircle } from "lucide-react";
+import { Download, Search, GraduationCap } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabase";
+import { universitiesApi } from "@/lib/api";
+import { toast } from "sonner";
 
 interface Student {
   id: string;
@@ -23,31 +24,53 @@ export default function UniversityStudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [branch, setBranch] = useState("all");
+  const [minCgpa, setMinCgpa] = useState("");
+  const [backlogFilter, setBacklogFilter] = useState("all");
 
   useEffect(() => {
     const loadStudents = async () => {
-      const { data, error } = await supabase
-        .from("student_profiles")
-        .select("id, full_name, email, course, cgpa, active_backlogs, graduation_year, profile_completion, skills")
-        .order("created_at", { ascending: false });
-
-      if (error) console.error("Error loading students:", error);
-      setStudents(data || []);
-      setLoading(false);
+      try {
+        const { data } = await universitiesApi.listStudents();
+        setStudents(Array.isArray(data) ? data : []);
+      } catch {
+        toast.error("Could not load the university student cohort");
+      } finally {
+        setLoading(false);
+      }
     };
 
     loadStudents();
   }, []);
 
+  const branches = Array.from(new Set(students.map((student) => student.course).filter(Boolean) as string[])).sort();
   const filtered = students.filter((s) => {
     const q = search.toLowerCase();
-    return (
+    const matchesSearch = (
       !q ||
       (s.full_name || "").toLowerCase().includes(q) ||
       (s.email || "").toLowerCase().includes(q) ||
       (s.course || "").toLowerCase().includes(q)
     );
+    const matchesBranch = branch === "all" || s.course === branch;
+    const matchesCgpa = !minCgpa || (s.cgpa ?? 0) >= Number(minCgpa);
+    const matchesBacklogs = backlogFilter === "all" ||
+      (backlogFilter === "none" ? (s.active_backlogs ?? 0) === 0 : (s.active_backlogs ?? 0) > 0);
+    return matchesSearch && matchesBranch && matchesCgpa && matchesBacklogs;
   });
+
+  const exportCsv = () => {
+    const rows = filtered.map((student) => [student.full_name, student.email, student.course, student.graduation_year, student.cgpa, student.active_backlogs, student.profile_completion]);
+    const csv = [["Name", "Email", "Branch", "Graduation Year", "CGPA", "Active Backlogs", "Profile Completion"], ...rows]
+      .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
+      .join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `student_cohort_${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
@@ -62,7 +85,7 @@ export default function UniversityStudentsPage() {
       </div>
 
       {/* Search */}
-      <div className="mb-6 flex items-center gap-2 rounded-xl border border-border bg-surface p-2">
+      <div className="mb-6 grid gap-2 rounded-xl border border-border bg-surface p-2 md:grid-cols-[1fr_220px_140px_150px_auto]">
         <div className="flex flex-1 items-center gap-2 px-2">
           <Search className="h-4 w-4 text-muted-foreground" />
           <Input
@@ -72,6 +95,15 @@ export default function UniversityStudentsPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <select value={branch} onChange={(event) => setBranch(event.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-xs">
+          <option value="all">All branches</option>
+          {branches.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <Input type="number" min="0" max="10" step="0.1" value={minCgpa} onChange={(event) => setMinCgpa(event.target.value)} placeholder="Min CGPA" />
+        <select value={backlogFilter} onChange={(event) => setBacklogFilter(event.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-xs">
+          <option value="all">All backlogs</option><option value="none">No backlogs</option><option value="active">Has backlogs</option>
+        </select>
+        <Button size="sm" variant="outline" onClick={exportCsv} disabled={filtered.length === 0}><Download className="mr-1 h-3.5 w-3.5" />Export</Button>
       </div>
 
       {/* Roster Table */}
