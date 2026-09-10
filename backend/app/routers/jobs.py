@@ -38,6 +38,49 @@ async def list_jobs(
         raise HTTPException(status_code=500, detail="Failed to fetch jobs")
 
 
+@router.get("/drives")
+async def list_placement_drives(current_user=Depends(get_current_user)):
+    """
+    Return all active/upcoming placement drives for the student portal.
+    Uses service-role to bypass the student-university RLS match issue.
+    """
+    supabase = get_supabase()
+    try:
+        # Get student profile for applied drives lookup
+        sp_res = supabase.table("student_profiles") \
+            .select("id") \
+            .eq("user_id", str(current_user.id)) \
+            .limit(1).execute()
+        student_profile_id = sp_res.data[0]["id"] if sp_res.data else None
+
+        # Fetch all active/upcoming drives — service-role bypasses RLS
+        drives_res = supabase.table("placement_drives") \
+            .select("*") \
+            .in_("status", ["upcoming", "active"]) \
+            .order("created_at", desc=True) \
+            .execute()
+
+        drives = drives_res.data or []
+
+        # Get already applied drive IDs for this student
+        applied_ids = set()
+        if student_profile_id:
+            apps_res = supabase.table("drive_applications") \
+                .select("drive_id") \
+                .eq("student_id", student_profile_id) \
+                .execute()
+            applied_ids = {a["drive_id"] for a in (apps_res.data or [])}
+
+        # Annotate each drive with applied status
+        for d in drives:
+            d["already_applied"] = d["id"] in applied_ids
+
+        return drives
+    except Exception as e:
+        logger.error(f"Failed to fetch placement drives: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch placement drives")
+
+
 @router.get("/matches", response_model=list[JobMatchResponse])
 async def get_job_matches(current_user=Depends(get_current_user)):
     """

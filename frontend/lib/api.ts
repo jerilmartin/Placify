@@ -60,6 +60,8 @@ export const resumesApi = {
   getAtsScore: (resumeId: string, jobId?: string) =>
     apiClient.get(`/api/resumes/${resumeId}/ats-score`, { params: { job_id: jobId } }),
   improve: (resumeId: string) => apiClient.post(`/api/resumes/${resumeId}/improve`),
+  syncToProfile: (resumeId: string, extractedData?: any) =>
+    apiClient.post(`/api/resumes/${resumeId}/sync-to-profile`, extractedData ? { extracted_data: extractedData } : {}),
   generateCoverLetter: (resumeId: string, jobId: string) =>
     apiClient.post("/api/resumes/cover-letter", null, { params: { resume_id: resumeId, job_id: jobId } }),
 };
@@ -67,6 +69,7 @@ export const resumesApi = {
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 export const jobsApi = {
   list: (params?: Record<string, unknown>) => apiClient.get("/api/jobs", { params }),
+  listDrives: () => apiClient.get("/api/jobs/drives"),
   getMatches: () => apiClient.get("/api/jobs/matches"),
   getById: (id: string) => apiClient.get(`/api/jobs/${id}`),
   create: (data: Record<string, unknown>) => apiClient.post("/api/jobs", data),

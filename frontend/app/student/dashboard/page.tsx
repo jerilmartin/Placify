@@ -18,24 +18,17 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { aiApi } from "@/lib/api";
 
-const applicationTrend = [
-  { d: "W1", applied: 1, interviews: 0 },
-  { d: "W2", applied: 2, interviews: 1 },
-  { d: "W3", applied: 4, interviews: 1 },
-  { d: "W4", applied: 3, interviews: 2 },
-  { d: "W5", applied: 6, interviews: 3 },
-  { d: "W6", applied: 5, interviews: 2 },
-  { d: "W7", applied: 8, interviews: 4 },
-  { d: "W8", applied: 7, interviews: 5 },
-];
+// Default empty trend (8 weeks of zeroes) — overwritten with real data on load
+const EMPTY_TREND = Array.from({ length: 8 }, (_, i) => ({ d: `W${i + 1}`, applied: 0, interviews: 0 }));
 
-const performanceRadar = [
-  { axis: "Technical", A: 85 },
-  { axis: "Communication", A: 90 },
-  { axis: "Problem Solving", A: 80 },
-  { axis: "System Design", A: 75 },
-  { axis: "Behavioral", A: 88 },
-  { axis: "Coding Speed", A: 82 },
+// Default radar — overwritten if interview history exists
+const DEFAULT_RADAR = [
+  { axis: "Technical", A: 0 },
+  { axis: "Communication", A: 0 },
+  { axis: "Problem Solving", A: 0 },
+  { axis: "System Design", A: 0 },
+  { axis: "Behavioral", A: 0 },
+  { axis: "Coding Speed", A: 0 },
 ];
 
 interface StudentProfile {
@@ -72,7 +65,8 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [applications, setApplications] = useState<DriveApplication[]>([]);
   const [drives, setDrives] = useState<Drive[]>([]);
-  const [trendData, setTrendData] = useState(applicationTrend);
+  const [trendData, setTrendData] = useState(EMPTY_TREND);
+  const [radarData, setRadarData] = useState(DEFAULT_RADAR);
   const [loading, setLoading] = useState(true);
   const [placementRisk, setPlacementRisk] = useState<any>(null);
   const [profileStrength, setProfileStrength] = useState<any>(null);
@@ -94,10 +88,71 @@ export default function Dashboard() {
       if (sp?.id) {
         const { data: apps } = await supabase
           .from("drive_applications")
-          .select("id, status, placement_drives(company_name, role, title, drive_date)")
+          .select("id, status, registered_at, placement_drives(company_name, role, title, drive_date)")
           .eq("student_id", sp.id)
           .order("registered_at", { ascending: false });
-        setApplications((apps as unknown as DriveApplication[]) || []);
+        const realApps = (apps as unknown as DriveApplication[]) || [];
+        setApplications(realApps);
+
+        // Compute application trend (last 8 weeks from real timestamps)
+        if (realApps.length > 0) {
+          const now = new Date();
+          const weekTrend = Array.from({ length: 8 }, (_, i) => ({
+            d: `W${8 - i}`,
+            weekStart: new Date(now.getTime() - (7 - i) * 7 * 24 * 60 * 60 * 1000),
+            weekEnd: new Date(now.getTime() - (6 - i) * 7 * 24 * 60 * 60 * 1000),
+          }));
+          const trendArr = weekTrend.map((w) => ({
+            d: w.d,
+            applied: realApps.filter((a: any) => {
+              const t = new Date(a.registered_at || a.created_at || 0);
+              return t >= w.weekStart && t < w.weekEnd;
+            }).length,
+            interviews: 0,
+          }));
+          setTrendData(trendArr);
+        }
+
+        // Fetch interview scores for radar
+        const { data: interviews } = await supabase
+          .from("interviews")
+          .select("interview_type, responses, feedback")
+          .eq("student_id", sp.id)
+          .eq("status", "completed")
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (interviews && interviews.length > 0) {
+          // Average scores per interview type from response evaluations
+          const typeScores: Record<string, number[]> = {
+            technical: [], behavioral: [], system_design: [], hr: []
+          };
+          interviews.forEach((iv: any) => {
+            const responses = iv.responses || [];
+            const scores = responses.map((r: any) => r?.evaluation?.score || 0).filter(Boolean);
+            if (scores.length > 0) {
+              const avg = scores.reduce((a: number, b: number) => a + b, 0) / scores.length;
+              const type = iv.interview_type || "technical";
+              if (typeScores[type]) typeScores[type].push(avg);
+            }
+          });
+          const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+          const techScore = avg(typeScores["technical"]);
+          const behScore = avg(typeScores["behavioral"]);
+          const sysScore = avg(typeScores["system_design"]);
+          const hrScore = avg(typeScores["hr"]);
+          // Only update radar if we have actual data
+          if (techScore + behScore + sysScore + hrScore > 0) {
+            setRadarData([
+              { axis: "Technical", A: techScore || 0 },
+              { axis: "Communication", A: hrScore || behScore || 0 },
+              { axis: "Problem Solving", A: techScore || 0 },
+              { axis: "System Design", A: sysScore || 0 },
+              { axis: "Behavioral", A: behScore || 0 },
+              { axis: "Coding Speed", A: techScore || 0 },
+            ]);
+          }
+        }
       }
 
       // 3. Recent available drives
@@ -255,7 +310,7 @@ export default function Dashboard() {
           </div>
           <div className="mt-4 h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={applicationTrend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
+              <AreaChart data={trendData} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
                 <defs>
                   <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
                     <stop offset="0%" stopColor="oklch(0.68 0.19 285)" stopOpacity={0.5} />
@@ -287,16 +342,23 @@ export default function Dashboard() {
         {/* Radar */}
         <div className="rounded-xl border border-border bg-surface p-5">
           <h3 className="text-[15px] font-medium">Interview readiness</h3>
-          <p className="text-[12px] text-muted-foreground">Skill radar evaluation</p>
-          <div className="mt-2 h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={performanceRadar} outerRadius="70%">
-                <PolarGrid stroke="oklch(1 0 0 / 0.08)" />
-                <PolarAngleAxis dataKey="axis" tick={{ fill: "oklch(0.68 0.02 270)", fontSize: 10 }} />
-                <Radar dataKey="A" stroke="oklch(0.68 0.19 285)" fill="oklch(0.68 0.19 285)" fillOpacity={0.25} />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
+          <p className="text-[12px] text-muted-foreground">Based on your completed mock interviews</p>
+          {radarData.every(d => d.A === 0) ? (
+            <div className="flex flex-col items-center justify-center h-[200px] text-center gap-2">
+              <p className="text-[13px] text-muted-foreground">No interview data yet.</p>
+              <Link href="/student/interview" className="text-[12px] text-primary hover:underline">Start a mock interview →</Link>
+            </div>
+          ) : (
+            <div className="mt-2 h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={radarData} outerRadius="70%">
+                  <PolarGrid stroke="oklch(1 0 0 / 0.08)" />
+                  <PolarAngleAxis dataKey="axis" tick={{ fill: "oklch(0.68 0.02 270)", fontSize: 10 }} />
+                  <Radar dataKey="A" stroke="oklch(0.68 0.19 285)" fill="oklch(0.68 0.19 285)" fillOpacity={0.25} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </div>
 

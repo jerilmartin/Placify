@@ -34,10 +34,12 @@ async def start_interview(data: InterviewCreate, current_user=Depends(get_curren
 
         # Get job context if provided
         job_context = None
+        valid_job_id = None
         if data.job_id:
             job_res = supabase.table("jobs").select("*").eq("id", str(data.job_id)).limit(1).execute()
             if job_res.data and len(job_res.data) > 0:
                 job_context = job_res.data[0]
+                valid_job_id = str(data.job_id)
             else:
                 drive_res = supabase.table("placement_drives").select("*").eq("id", str(data.job_id)).limit(1).execute()
                 if drive_res.data and len(drive_res.data) > 0:
@@ -51,6 +53,16 @@ async def start_interview(data: InterviewCreate, current_user=Depends(get_curren
                         "skills_required": skills if isinstance(skills, list) else [str(skills)],
                         "description": d.get("description", ""),
                     }
+                    # Note: placement_drives.id is not a foreign key in jobs table, so valid_job_id stays None for DB integrity
+
+        # Map interview type to allowed DB check constraint ('technical', 'behavioral', 'mixed')
+        db_type = "technical"
+        if data.interview_type in ["behavioral", "hr"]:
+            db_type = "behavioral"
+        elif data.interview_type in ["technical", "system_design"]:
+            db_type = "technical"
+        else:
+            db_type = "mixed"
 
         # Generate first question with Gemini
         questions = await generate_interview_questions(
@@ -64,19 +76,24 @@ async def start_interview(data: InterviewCreate, current_user=Depends(get_curren
 
         first_question = questions[0] if questions else "Tell me about yourself."
 
+        # DB table 'interviews' columns: id, student_id, job_id, interview_type, difficulty, status, questions_asked, responses, feedback
+        # Note: current_question does not exist as a column in DB table
         payload = {
             "student_id": profile.data["id"],
-            "job_id": str(data.job_id) if data.job_id else None,
-            "interview_type": data.interview_type,
+            "job_id": valid_job_id,
+            "interview_type": db_type,
             "difficulty": data.difficulty,
             "status": "active",
-            "current_question": first_question,
             "questions_asked": questions,
             "responses": [],
         }
 
         result = supabase.table("interviews").insert(payload).execute()
-        return result.data[0]
+        created = result.data[0]
+        # Attach current_question for response model
+        created["current_question"] = first_question
+        created["interview_type"] = data.interview_type
+        return created
 
     except HTTPException:
         raise
@@ -129,7 +146,6 @@ async def submit_answer(data: InterviewAnswer, current_user=Depends(get_current_
             next_question = questions_asked[data.question_index + 1]
             supabase.table("interviews").update({
                 "responses": responses,
-                "current_question": next_question,
             }).eq("id", str(data.interview_id)).execute()
 
         return {
@@ -185,6 +201,12 @@ async def list_interviews(current_user=Depends(get_current_user)):
             .eq("student_id", profile.data["id"]) \
             .order("created_at", desc=True) \
             .execute()
-        return result.data or []
+        items = result.data or []
+        for item in items:
+            q_asked = item.get("questions_asked") or []
+            resps = item.get("responses") or []
+            idx = len(resps)
+            item["current_question"] = q_asked[idx] if idx < len(q_asked) else None
+        return items
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch interviews")

@@ -41,8 +41,43 @@ async def career_guidance(request: CareerGuidanceRequest, current_user=Depends(g
     """
     try:
         supabase = get_supabase()
-        profile = supabase.table("student_profiles").select("*").eq("user_id", str(current_user.id)).single().execute()
-        student_context = profile.data if profile.data else {}
+        profile_res = supabase.table("student_profiles").select("*").eq("user_id", str(current_user.id)).limit(1).execute()
+        student_context = profile_res.data[0] if profile_res.data else {}
+
+        # Enrich with real drive application history
+        if student_context.get("id"):
+            try:
+                apps_res = supabase.table("drive_applications") \
+                    .select("status, placement_drives(company_name, role)") \
+                    .eq("student_id", student_context["id"]) \
+                    .limit(5) \
+                    .execute()
+                if apps_res.data:
+                    student_context["applied_drives"] = [
+                        f"{a.get('placement_drives', {}).get('role') or 'Role'} at {a.get('placement_drives', {}).get('company_name') or 'Company'} ({a.get('status')})"
+                        for a in apps_res.data if a.get("placement_drives")
+                    ]
+            except Exception:
+                pass
+
+            # Enrich with interview history
+            try:
+                interviews_res = supabase.table("interviews") \
+                    .select("interview_type, feedback") \
+                    .eq("student_id", student_context["id"]) \
+                    .eq("status", "completed") \
+                    .limit(3) \
+                    .execute()
+                if interviews_res.data:
+                    scores = [
+                        i.get("feedback", {}).get("overall_score")
+                        for i in interviews_res.data
+                        if i.get("feedback") and isinstance(i.get("feedback"), dict) and i["feedback"].get("overall_score")
+                    ]
+                    if scores:
+                        student_context["avg_interview_score"] = round(sum(scores) / len(scores))
+            except Exception:
+                pass
 
         response = await career_guidance_chat(
             message=request.message,
@@ -51,6 +86,7 @@ async def career_guidance(request: CareerGuidanceRequest, current_user=Depends(g
         )
         return {"response": response, "role": "assistant"}
     except Exception as e:
+        logger.error(f"Career guidance error: {e}")
         raise HTTPException(status_code=500, detail="Career guidance unavailable")
 
 

@@ -24,8 +24,6 @@ export default function RegisterPage() {
 
   const [form, setForm] = useState({
     full_name: "", email: "", password: "", confirm_password: "",
-    university: "", student_id: "", course: "", graduation_year: "",
-    company_name: "",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,10 +37,6 @@ export default function RegisterPage() {
         password: form.password,
         full_name: form.full_name,
         role: selectedRole,
-        university: form.university || undefined,
-        student_id: form.student_id || undefined,
-        course: form.course || undefined,
-        graduation_year: form.graduation_year ? parseInt(form.graduation_year) : undefined,
       });
       toast.success("Account created! Welcome to Placify 🎉");
       const roleRoutes: Record<UserRole, string> = {
@@ -115,58 +109,35 @@ export default function RegisterPage() {
           </div>
         )}
 
-        {/* Step 2: Account Details */}
+        {/* Step 2: Minimal account details — profile completion happens post-login */}
         {step === 2 && (
           <div className="glass p-8 animate-fade-up">
             <button onClick={() => setStep(1)} className="text-xs text-slate-500 hover:text-slate-300 mb-4 flex items-center gap-1">
               ← Back
             </button>
+            <p className="text-xs text-slate-500 mb-5">
+              You can add your university, branch, and profile details after signing in.
+            </p>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Full Name</label>
-                  <input type="text" value={form.full_name} onChange={e => setForm(f => ({...f, full_name: e.target.value}))} required
-                    placeholder="John Doe" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Email</label>
-                  <input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} required
-                    placeholder="you@example.com" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Password</label>
-                  <input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} required
-                    placeholder="Min 8 chars" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Confirm Password</label>
-                  <input type="password" value={form.confirm_password} onChange={e => setForm(f => ({...f, confirm_password: e.target.value}))} required
-                    placeholder="••••••••" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
-                </div>
-                {selectedRole === "student" && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1.5">University</label>
-                      <input type="text" value={form.university} onChange={e => setForm(f => ({...f, university: e.target.value}))}
-                        placeholder="Your university" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1.5">Student ID</label>
-                      <input type="text" value={form.student_id} onChange={e => setForm(f => ({...f, student_id: e.target.value}))}
-                        placeholder="CS20B001" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1.5">Course</label>
-                      <input type="text" value={form.course} onChange={e => setForm(f => ({...f, course: e.target.value}))}
-                        placeholder="B.Tech CSE" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1.5">Graduation Year</label>
-                      <input type="number" value={form.graduation_year} onChange={e => setForm(f => ({...f, graduation_year: e.target.value}))}
-                        placeholder="2026" min="2024" max="2030" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
-                    </div>
-                  </>
-                )}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Full Name</label>
+                <input type="text" value={form.full_name} onChange={e => setForm(f => ({...f, full_name: e.target.value}))} required
+                  placeholder="John Doe" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Email</label>
+                <input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} required
+                  placeholder="you@example.com" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Password</label>
+                <input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} required
+                  placeholder="Min 8 characters" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Confirm Password</label>
+                <input type="password" value={form.confirm_password} onChange={e => setForm(f => ({...f, confirm_password: e.target.value}))} required
+                  placeholder="••••••••" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
               </div>
 
               <button type="submit" disabled={loading}

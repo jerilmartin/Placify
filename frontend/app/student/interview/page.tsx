@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Loader2, CheckCircle2, ChevronRight, RotateCcw, Send } from "lucide-react";
+import { Sparkles, Loader2, CheckCircle2, ChevronRight, RotateCcw, Send, BriefcaseBusiness } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { interviewsApi } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 type Phase = "setup" | "active" | "complete";
@@ -23,6 +25,15 @@ interface QA {
   evaluation: Evaluation | null;
 }
 
+interface Application {
+  id: string;
+  job_id?: string;
+  drive_id?: string;
+  status: string;
+  jobs?: { title?: string; company?: string; location?: string };
+  placement_drives?: { role?: string; company_name?: string; description?: string };
+}
+
 const INTERVIEW_TYPES = [
   { value: "technical", label: "Technical" },
   { value: "behavioral", label: "Behavioral" },
@@ -33,6 +44,7 @@ const INTERVIEW_TYPES = [
 const DIFFICULTIES = ["easy", "medium", "hard"];
 
 export default function InterviewPage() {
+  const { user } = useAuth();
   const [phase, setPhase] = useState<Phase>("setup");
 
   // Setup
@@ -40,6 +52,9 @@ export default function InterviewPage() {
   const [difficulty, setDifficulty] = useState("medium");
   const [targetRole, setTargetRole] = useState("");
   const [numQuestions, setNumQuestions] = useState(5);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [loadingApps, setLoadingApps] = useState(true);
 
   // Session
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -58,21 +73,77 @@ export default function InterviewPage() {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Fetch BOTH direct job applications AND drive applications on mount
+  useEffect(() => {
+    if (!user) { setLoadingApps(false); return; }
+    const loadApps = async () => {
+      try {
+        // 1. Get student profile id
+        const { data: sp } = await supabase
+          .from("student_profiles")
+          .select("id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        const merged: Application[] = [];
+
+        // 2. Direct job applications (applications table)
+        const { data: jobApps } = await supabase
+          .from("applications")
+          .select("id, job_id, status, jobs(title, company, location)")
+          .eq("student_id", sp?.id || "")
+          .neq("status", "withdrawn")
+          .order("created_at", { ascending: false });
+        if (jobApps) merged.push(...(jobApps as unknown as Application[]));
+
+        // 3. Placement drive applications
+        if (sp?.id) {
+          const { data: driveApps } = await supabase
+            .from("drive_applications")
+            .select("id, drive_id, status, placement_drives(role, company_name, description)")
+            .eq("student_id", sp.id)
+            .order("registered_at", { ascending: false });
+          if (driveApps) merged.push(...(driveApps as unknown as Application[]));
+        }
+
+        setApplications(merged);
+      } catch {
+        // Non-fatal
+      } finally {
+        setLoadingApps(false);
+      }
+    };
+    loadApps();
+  }, [user]);
+
   const overallScore = summary?.overall_score
     ?? (history.length > 0
       ? Math.round(history.reduce((s, q) => s + (q.evaluation?.score ?? 0), 0) / history.length)
       : 0);
 
+  const getAppLabel = (app: Application) => {
+    const title = app.jobs?.title || app.placement_drives?.role || "Role";
+    const company = app.jobs?.company || app.placement_drives?.company_name || "Company";
+    return `${title} @ ${company}`;
+  };
+
   const startSession = async () => {
-    if (!targetRole.trim()) { toast.error("Please enter a target role"); return; }
+    const effectiveRole = targetRole.trim();
+    if (!effectiveRole && !selectedJobId) {
+      toast.error("Select a job from your applications or enter a target role");
+      return;
+    }
     setStarting(true);
     try {
-      const res = await interviewsApi.start({
+      const payload: Record<string, unknown> = {
         interview_type: interviewType,
         difficulty,
-        target_role: targetRole,
+        target_role: effectiveRole || undefined,
         num_questions: numQuestions,
-      });
+      };
+      if (selectedJobId) payload.job_id = selectedJobId;
+
+      const res = await interviewsApi.start(payload);
       const data = res.data;
       setSessionId(data.id);
       setQuestions(data.questions_asked || []);
@@ -80,8 +151,9 @@ export default function InterviewPage() {
       setCurrentIdx(0);
       setHistory([]);
       setPhase("active");
-    } catch {
-      toast.error("Could not start interview — make sure backend is running.");
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || "";
+      toast.error(detail || "Could not start interview — make sure the backend is running.");
     } finally {
       setStarting(false);
     }
@@ -103,7 +175,6 @@ export default function InterviewPage() {
       });
       const data = res.data;
 
-      // Patch the evaluation back into the last history item
       setHistory((h) => h.map((item, i) => i === h.length - 1 ? { ...item, evaluation: data.evaluation } : item));
       setEvaluation(data.evaluation);
 
@@ -148,21 +219,67 @@ export default function InterviewPage() {
       <div className="mx-auto max-w-2xl px-4 py-8 md:py-12">
         <div className="mb-8 text-center">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[11px] text-primary">
-            <Sparkles className="h-3 w-3" /> AI Mock Interview · Powered by Gemini
+            <Sparkles className="h-3 w-3" /> AI Mock Interview
           </div>
           <h1 className="mt-4 text-3xl font-bold tracking-tight">Practice Interview</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Gemini generates real questions based on your role and profile, then evaluates every answer.
+            AI generates role-specific questions from your actual applications and evaluates every answer in real time.
           </p>
         </div>
 
         <div className="space-y-5 rounded-2xl border border-border bg-surface p-6">
-          {/* Target Role */}
+          {/* Pick from your applications */}
+          <div>
+            <label className="mb-1.5 block text-[13px] font-medium">
+              Practice for a job you&apos;ve applied to
+            </label>
+            {loadingApps ? (
+              <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading your applications…
+              </div>
+            ) : applications.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground">No applications found. Enter a role below.</p>
+            ) : (
+              <div className="grid gap-2">
+                {applications.slice(0, 6).map((app) => (
+                  <button
+                    key={app.id}
+                    onClick={() => {
+                      const newId = app.job_id || app.drive_id || null;
+                      setSelectedJobId(selectedJobId === newId ? null : newId);
+                      setTargetRole(""); // clear manual role when picking an application
+                    }}
+                    className={`flex items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-left text-[13px] transition-colors ${
+                      selectedJobId === (app.job_id || app.drive_id)
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border bg-background hover:border-primary/40"
+                    }`}
+                  >
+                    <BriefcaseBusiness className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="font-medium">{getAppLabel(app)}</span>
+                    <span className={`ml-auto shrink-0 text-[11px] capitalize rounded-full px-2 py-0.5 ${
+                      app.status === "accepted" ? "bg-success/15 text-success" :
+                      app.status === "shortlisted" ? "bg-blue-500/15 text-blue-400" :
+                      "bg-muted text-muted-foreground"
+                    }`}>{app.status}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 text-[12px] text-muted-foreground">
+            <div className="flex-1 border-t border-border" />
+            or enter a custom role
+            <div className="flex-1 border-t border-border" />
+          </div>
+
+          {/* Target Role (fallback) */}
           <div>
             <label className="mb-1.5 block text-[13px] font-medium">Target Role</label>
             <input
               value={targetRole}
-              onChange={(e) => setTargetRole(e.target.value)}
+              onChange={(e) => { setTargetRole(e.target.value); setSelectedJobId(null); }}
               placeholder="e.g. Software Engineer, Data Analyst, Product Manager"
               className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-[14px] outline-none focus:border-primary transition-colors"
             />
@@ -223,7 +340,7 @@ export default function InterviewPage() {
 
           <Button onClick={startSession} disabled={starting} className="w-full gap-2" size="lg">
             {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {starting ? "Generating questions with Gemini…" : "Start Interview Session"}
+            {starting ? "Generating questions…" : "Start Interview Session"}
           </Button>
         </div>
       </div>
@@ -296,6 +413,13 @@ export default function InterviewPage() {
               {qa.evaluation?.feedback && (
                 <p className="mt-2 text-[12.5px] text-muted-foreground italic">{qa.evaluation.feedback}</p>
               )}
+              {qa.evaluation?.improvements && qa.evaluation.improvements.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {qa.evaluation.improvements.map((imp, j) => (
+                    <span key={j} className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] text-warning">{imp}</span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -317,7 +441,7 @@ export default function InterviewPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">AI Mock Interview</h1>
-          <p className="text-sm text-muted-foreground capitalize">{interviewType.replace("_", " ")} · {targetRole} · {difficulty}</p>
+          <p className="text-sm text-muted-foreground capitalize">{interviewType.replace("_", " ")} · {targetRole || "Applied Role"} · {difficulty}</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[12px] text-muted-foreground">
@@ -350,7 +474,7 @@ export default function InterviewPage() {
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
                 </div>
                 <span className="text-[11px] font-medium uppercase tracking-wider text-primary">
-                  Gemini AI · Interviewer
+                  AI Interviewer
                 </span>
               </div>
               <p className="text-[16px] font-medium leading-relaxed">{currentQuestion}</p>
