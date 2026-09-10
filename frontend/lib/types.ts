@@ -371,6 +371,8 @@ export interface PlacementRisk {
     projects: number;
     experience: number;
     profile_completion: number;
+    backlogs?: number;
+    mock_interview?: number;
   };
   top_improvements: string[];
   message: string;

@@ -91,14 +91,14 @@ export default function UniversityDashboardPage() {
       const { data: students } = await supabase
         .from("student_profiles")
         .select("id, course, cgpa")
-        .eq("university", up.name);
+        .eq("university_id", up.id);
       const studentsArr = students || [];
 
       // ── Compute stats ──────────────────────────────────────────
-      const totalRegistered = allApps.length;
-      const totalSelected = allApps.filter((a: any) =>
-        ["selected", "offered", "accepted", "placed"].includes((a.status || "").toLowerCase())
-      ).length;
+      const totalRegistered = new Set(allApps.map((application: any) => application.student_id)).size;
+      const totalSelected = new Set(allApps.filter((application: any) =>
+        ["selected", "offered", "accepted", "placed"].includes((application.status || "").toLowerCase())
+      ).map((application: any) => application.student_id)).size;
 
       setStats({
         totalDrives: drivesArr.length,
@@ -141,10 +141,10 @@ export default function UniversityDashboardPage() {
       setSectorData(sectors.length > 0 ? sectors : [{ name: "No data yet", v: 100, c: SECTOR_COLORS[0] }]);
 
       // ── Branch breakdown from student profiles ──────────────────
-      const branchMap: Record<string, { students: number; selected: number; pkgSum: number; pkgCount: number }> = {};
+      const branchMap: Record<string, { students: number; selectedIds: Set<string>; packages: Map<string, number> }> = {};
       studentsArr.forEach((s: any) => {
         const b = normalizeBranch(s.course);
-        if (!branchMap[b]) branchMap[b] = { students: 0, selected: 0, pkgSum: 0, pkgCount: 0 };
+        if (!branchMap[b]) branchMap[b] = { students: 0, selectedIds: new Set(), packages: new Map() };
         branchMap[b].students += 1;
       });
       // Cross-ref with applications
@@ -152,11 +152,11 @@ export default function UniversityDashboardPage() {
         const sp = a.student_profiles;
         if (!sp) return;
         const b = normalizeBranch(sp.course);
-        if (!branchMap[b]) branchMap[b] = { students: 0, selected: 0, pkgSum: 0, pkgCount: 0 };
+        if (!branchMap[b]) branchMap[b] = { students: 0, selectedIds: new Set(), packages: new Map() };
         if (["selected", "offered", "accepted", "placed"].includes((a.status || "").toLowerCase())) {
-          branchMap[b].selected += 1;
+          branchMap[b].selectedIds.add(a.student_id);
           const drive = drivesArr.find((d: any) => d.id === a.drive_id);
-          if (drive?.package_lpa) { branchMap[b].pkgSum += drive.package_lpa; branchMap[b].pkgCount += 1; }
+          if (drive?.package_lpa) branchMap[b].packages.set(a.student_id, drive.package_lpa);
         }
       });
       const branchRows = Object.entries(branchMap)
@@ -164,8 +164,10 @@ export default function UniversityDashboardPage() {
         .map(([b, v]) => ({
           b,
           students: v.students,
-          selected: v.selected,
-          avgPkg: v.pkgCount > 0 ? Math.round((v.pkgSum / v.pkgCount) * 10) / 10 : 0,
+          selected: v.selectedIds.size,
+          avgPkg: v.packages.size > 0
+            ? Math.round((Array.from(v.packages.values()).reduce((sum, pkg) => sum + pkg, 0) / v.packages.size) * 10) / 10
+            : 0,
         }))
         .sort((a, b) => b.students - a.students);
       setBranchData(branchRows);

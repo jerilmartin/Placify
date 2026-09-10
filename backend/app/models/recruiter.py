@@ -19,7 +19,7 @@ class RecruiterProfileBase(BaseModel):
 
 
 class RecruiterProfileCreate(RecruiterProfileBase):
-    user_id: Optional[uuid.UUID] = None
+    pass
 
 
 class RecruiterProfileUpdate(BaseModel):

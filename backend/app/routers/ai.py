@@ -5,7 +5,7 @@ AI Feature router — Gemini-powered features accessible from the frontend
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
-from app.middleware.auth import get_current_user
+from app.middleware.auth import require_student
 from app.database import get_supabase
 from app.services.gemini_service import (
     career_guidance_chat,
@@ -32,8 +32,59 @@ class PlacementRiskRequest(BaseModel):
     student_id: Optional[str] = None  # If None, uses current user's profile
 
 
+def _ensure_historical_placement_model(supabase) -> None:
+    """Train once from completed application outcomes when enough data exists."""
+    from ml.placement_predictor import get_predictor
+    import numpy as np
+
+    predictor = get_predictor()
+    if predictor.is_ready():
+        return
+
+    profiles = supabase.table("student_profiles").select(
+        "id,skills,cgpa,projects,work_experience,profile_completion,github_url,linkedin_url,active_backlogs"
+    ).execute().data or []
+    applications = supabase.table("applications").select("student_id,status").execute().data or []
+    drive_applications = supabase.table("drive_applications").select("student_id,status").execute().data or []
+    interviews = supabase.table("interviews").select("student_id,feedback").eq("status", "completed").execute().data or []
+
+    outcomes = {}
+    positive = {"offered", "accepted", "selected", "placed"}
+    negative = {"rejected"}
+    for application in [*applications, *drive_applications]:
+        status = (application.get("status") or "").lower()
+        student_id = application.get("student_id")
+        if student_id and status in positive:
+            outcomes[student_id] = 1
+        elif student_id and status in negative and student_id not in outcomes:
+            outcomes[student_id] = 0
+
+    interview_scores = {}
+    for interview in interviews:
+        feedback = interview.get("feedback") or {}
+        score = feedback.get("overall_score") if isinstance(feedback, dict) else None
+        if score is not None:
+            interview_scores.setdefault(interview.get("student_id"), []).append(float(score))
+
+    labeled = []
+    labels = []
+    for profile in profiles:
+        if profile["id"] not in outcomes:
+            continue
+        scores = interview_scores.get(profile["id"], [])
+        profile["mock_interview_score"] = sum(scores) / len(scores) if scores else 0
+        labeled.append(predictor.extract_features(profile))
+        labels.append(outcomes[profile["id"]])
+
+    if len(labeled) >= 20 and len(set(labels)) == 2:
+        predictor.train(np.asarray(labeled, dtype=float), np.asarray(labels, dtype=int))
+        logger.info("Placement predictor trained from %s historical outcomes", len(labeled))
+    else:
+        logger.info("Historical placement model needs at least 20 mixed outcomes; found %s", len(labeled))
+
+
 @router.post("/career-guidance")
-async def career_guidance(request: CareerGuidanceRequest, current_user=Depends(get_current_user)):
+async def career_guidance(request: CareerGuidanceRequest, current_user=Depends(require_student)):
     """
     AI Career Guidance Chatbot.
     Ask: "What skills should I learn for Data Science?"
@@ -91,14 +142,21 @@ async def career_guidance(request: CareerGuidanceRequest, current_user=Depends(g
 
 
 @router.post("/resume-vs-job")
-async def resume_vs_job_analysis(request: ResumeJobAnalysisRequest, current_user=Depends(get_current_user)):
+async def resume_vs_job_analysis(request: ResumeJobAnalysisRequest, current_user=Depends(require_student)):
     """
     AI Resume vs Job Analysis.
     Returns: missing skills, match %, recommendations, cover letter tips.
     """
     supabase = get_supabase()
     try:
-        resume_res = supabase.table("resumes").select("*").eq("id", request.resume_id).limit(1).execute()
+        profile = supabase.table("student_profiles").select("id") \
+            .eq("user_id", str(current_user.id)).limit(1).execute()
+        if not profile.data:
+            raise HTTPException(status_code=404, detail="Student profile not found")
+        resume_res = supabase.table("resumes").select("*") \
+            .eq("id", request.resume_id) \
+            .eq("student_id", profile.data[0]["id"]) \
+            .limit(1).execute()
         if not resume_res.data:
             raise HTTPException(status_code=404, detail="Resume not found")
         resume = resume_res.data[0]
@@ -138,7 +196,7 @@ async def resume_vs_job_analysis(request: ResumeJobAnalysisRequest, current_user
 
 
 @router.get("/placement-risk")
-async def placement_risk(current_user=Depends(get_current_user)):
+async def placement_risk(current_user=Depends(require_student)):
     """
     Predict placement probability for current student.
     Uses ML model (Scikit-Learn) + profile data.
@@ -149,8 +207,20 @@ async def placement_risk(current_user=Depends(get_current_user)):
         profile = supabase.table("student_profiles").select("*").eq("user_id", str(current_user.id)).single().execute()
         if not profile.data:
             raise HTTPException(status_code=404, detail="Complete your profile first")
-
-        prediction = await predict_placement_risk(profile.data)
+        profile_data = profile.data
+        interviews = supabase.table("interviews").select("feedback") \
+            .eq("student_id", profile_data["id"]).eq("status", "completed").execute()
+        scores = [
+            item.get("feedback", {}).get("overall_score")
+            for item in (interviews.data or [])
+            if isinstance(item.get("feedback"), dict) and item.get("feedback", {}).get("overall_score") is not None
+        ]
+        profile_data["mock_interview_score"] = sum(scores) / len(scores) if scores else 0
+        try:
+            _ensure_historical_placement_model(supabase)
+        except Exception as exc:
+            logger.warning("Historical placement training unavailable; using fallback: %s", exc)
+        prediction = await predict_placement_risk(profile_data)
         return prediction
     except HTTPException:
         raise
@@ -159,7 +229,7 @@ async def placement_risk(current_user=Depends(get_current_user)):
 
 
 @router.get("/profile-strength")
-async def profile_strength(current_user=Depends(get_current_user)):
+async def profile_strength(current_user=Depends(require_student)):
     """
     Get detailed profile strength breakdown (like LinkedIn).
     Returns score for each section + tips to improve.

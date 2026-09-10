@@ -5,7 +5,7 @@ Endpoints: upload resume, parse PDF, get AI improvement, ATS score, sync to prof
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, status
 from fastapi.responses import StreamingResponse
-from app.middleware.auth import get_current_user
+from app.middleware.auth import require_student
 from app.database import get_supabase
 from app.services.resume_service import parse_resume_pdf, calculate_ats_score
 from app.services.gemini_service import (
@@ -23,6 +23,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _get_owned_resume(supabase, resume_id, user_id):
+    """Return a resume only when it belongs to the authenticated student."""
+    profile = supabase.table("student_profiles").select("id") \
+        .eq("user_id", str(user_id)).limit(1).execute()
+    if not profile.data:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    resume = supabase.table("resumes").select("*") \
+        .eq("id", str(resume_id)) \
+        .eq("student_id", profile.data[0]["id"]) \
+        .limit(1).execute()
+    if not resume.data:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    return resume.data[0]
+
+
 class SyncProfileRequest(BaseModel):
     extracted_data: Optional[Dict[str, Any]] = None
 
@@ -38,7 +53,7 @@ except Exception as e:
 @router.post("/upload")
 async def upload_resume(
     file: UploadFile = File(...),
-    current_user=Depends(get_current_user)
+    current_user=Depends(require_student)
 ):
     """
     Upload a resume PDF.
@@ -144,7 +159,7 @@ async def upload_resume(
 
 
 @router.get("/")
-async def list_resumes(current_user=Depends(get_current_user)):
+async def list_resumes(current_user=Depends(require_student)):
     """List all resumes for current student"""
     supabase = get_supabase()
     try:
@@ -172,16 +187,14 @@ async def list_resumes(current_user=Depends(get_current_user)):
 
 
 @router.get("/{resume_id}/ats-score")
-async def get_ats_score(resume_id: uuid.UUID, job_id: uuid.UUID = None, current_user=Depends(get_current_user)):
+async def get_ats_score(resume_id: uuid.UUID, job_id: uuid.UUID = None, current_user=Depends(require_student)):
     """
     Calculate ATS score for a resume.
     If job_id provided, scores against specific job or placement drive requirements.
     """
     supabase = get_supabase()
     try:
-        resume = supabase.table("resumes").select("*").eq("id", str(resume_id)).single().execute()
-        if not resume.data:
-            raise HTTPException(status_code=404, detail="Resume not found")
+        resume = _get_owned_resume(supabase, resume_id, current_user.id)
 
         job_requirements = None
         if job_id:
@@ -201,7 +214,7 @@ async def get_ats_score(resume_id: uuid.UUID, job_id: uuid.UUID = None, current_
                         "description": d.get("description", ""),
                     }
 
-        score_result = calculate_ats_score(resume.data.get("parsed_text", ""), job_requirements)
+        score_result = calculate_ats_score(resume.get("parsed_text", ""), job_requirements)
         return score_result
 
     except HTTPException:
@@ -212,18 +225,15 @@ async def get_ats_score(resume_id: uuid.UUID, job_id: uuid.UUID = None, current_
 
 
 @router.post("/{resume_id}/improve")
-async def improve_resume_endpoint(resume_id: uuid.UUID, current_user=Depends(get_current_user)):
+async def improve_resume_endpoint(resume_id: uuid.UUID, current_user=Depends(require_student)):
     """
     AI-powered resume improvement suggestions using Gemini.
     Returns: ATS score, missing keywords, weak descriptions, improvement tips.
     """
     supabase = get_supabase()
     try:
-        resume = supabase.table("resumes").select("*").eq("id", str(resume_id)).single().execute()
-        if not resume.data:
-            raise HTTPException(status_code=404, detail="Resume not found")
-
-        suggestions = await improve_resume(resume.data.get("parsed_text", ""))
+        resume = _get_owned_resume(supabase, resume_id, current_user.id)
+        suggestions = await improve_resume(resume.get("parsed_text", ""))
         return suggestions
 
     except HTTPException:
@@ -237,7 +247,7 @@ async def improve_resume_endpoint(resume_id: uuid.UUID, current_user=Depends(get
 async def sync_resume_to_profile(
     resume_id: str,
     payload: Optional[SyncProfileRequest] = None,
-    current_user=Depends(get_current_user)
+    current_user=Depends(require_student)
 ):
     """
     Sync extracted resume data into the student's profile.
@@ -255,9 +265,8 @@ async def sync_resume_to_profile(
         # Option 2: Lookup by resume_id in database
         if not extracted and resume_id and resume_id not in ("latest", "undefined", "null"):
             try:
-                resume_res = supabase.table("resumes").select("*").eq("id", str(resume_id)).limit(1).execute()
-                if resume_res.data and len(resume_res.data) > 0:
-                    extracted = resume_res.data[0].get("extracted_data")
+                owned_resume = _get_owned_resume(supabase, resume_id, current_user.id)
+                extracted = owned_resume.get("extracted_data")
             except Exception as re:
                 logger.warning(f"Lookup by resume_id {resume_id} failed: {re}")
 
@@ -357,6 +366,16 @@ async def sync_resume_to_profile(
             if not profile.get("university") and first_edu.get("institution"):
                 update["university"] = first_edu["institution"]
 
+        if update.get("university"):
+            normalized_name = str(update["university"]).strip().casefold()
+            universities = supabase.table("university_profiles") \
+                .select("id,name").execute()
+            matches = [
+                university for university in (universities.data or [])
+                if (university.get("name") or "").strip().casefold() == normalized_name
+            ]
+            update["university_id"] = matches[0]["id"] if len(matches) == 1 else None
+
         # Work experience: merge/overwrite from resume if it has richer data
         ext_experience = extracted.get("experience") or []
         existing_exp = profile.get("work_experience") or []
@@ -429,14 +448,12 @@ async def sync_resume_to_profile(
 async def generate_cover_letter_endpoint(
     resume_id: uuid.UUID,
     job_id: uuid.UUID,
-    current_user=Depends(get_current_user)
+    current_user=Depends(require_student)
 ):
     """Generate AI cover letter from resume + job or placement drive description"""
     supabase = get_supabase()
     try:
-        resume = supabase.table("resumes").select("*").eq("id", str(resume_id)).single().execute()
-        if not resume.data:
-            raise HTTPException(status_code=404, detail="Resume not found")
+        resume = _get_owned_resume(supabase, resume_id, current_user.id)
 
         job_data = None
         job_res = supabase.table("jobs").select("*").eq("id", str(job_id)).limit(1).execute()
@@ -459,7 +476,7 @@ async def generate_cover_letter_endpoint(
             raise HTTPException(status_code=404, detail="Job or placement drive not found")
 
         cover_letter = await generate_cover_letter(
-            resume_text=resume.data.get("parsed_text", ""),
+            resume_text=resume.get("parsed_text", ""),
             job=job_data
         )
         return {"cover_letter": cover_letter}

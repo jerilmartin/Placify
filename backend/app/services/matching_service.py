@@ -105,6 +105,7 @@ async def _semantic_matching(student: dict, jobs: List[dict]) -> List[dict]:
     """
     try:
         from sentence_transformers import SentenceTransformer
+        import faiss
         import numpy as np
 
         model = SentenceTransformer(settings.sentence_transformer_model)
@@ -118,12 +119,17 @@ async def _semantic_matching(student: dict, jobs: List[dict]) -> List[dict]:
         job_embeddings = model.encode(job_texts)
 
         # Compute cosine similarities
-        student_norm = student_embedding / (np.linalg.norm(student_embedding) + 1e-8)
-        job_norms = job_embeddings / (np.linalg.norm(job_embeddings, axis=1, keepdims=True) + 1e-8)
-        similarities = np.dot(job_norms, student_norm)
+        student_norm = np.asarray([student_embedding], dtype="float32")
+        job_norms = np.asarray(job_embeddings, dtype="float32")
+        faiss.normalize_L2(student_norm)
+        faiss.normalize_L2(job_norms)
+        index = faiss.IndexFlatIP(job_norms.shape[1])
+        index.add(job_norms)
+        similarities, indices = index.search(student_norm, len(jobs))
 
         matches = []
-        for i, (job, sim) in enumerate(zip(jobs, similarities)):
+        for job_index, sim in zip(indices[0], similarities[0]):
+            job = jobs[int(job_index)]
             score = int(sim * 100)
             if score < 20:
                 continue

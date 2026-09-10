@@ -74,6 +74,11 @@ export default function UniversityReportsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const exportPdf = () => {
+    document.title = `Placify Placement Report ${new Date().toISOString().slice(0, 10)}`;
+    window.print();
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -91,9 +96,14 @@ export default function UniversityReportsPage() {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Placement Reports</h1>
           <p className="mt-1 text-sm text-muted-foreground">Season-wide drive summary · NAAC & NIRF ready</p>
         </div>
-        <Button onClick={exportCSV} variant="outline" size="sm" className="gap-2 self-start md:self-auto">
-          <Download className="h-3.5 w-3.5" /> Export CSV
-        </Button>
+        <div className="flex gap-2 self-start md:self-auto">
+          <Button onClick={exportCSV} variant="outline" size="sm" className="gap-2">
+            <Download className="h-3.5 w-3.5" /> Export CSV
+          </Button>
+          <Button onClick={exportPdf} size="sm" className="gap-2">
+            <FileText className="h-3.5 w-3.5" /> Export PDF
+          </Button>
+        </div>
       </div>
 
       {/* Summary KPIs */}

@@ -26,7 +26,7 @@ class UniversityProfileBase(BaseModel):
 
 
 class UniversityProfileCreate(UniversityProfileBase):
-    user_id: uuid.UUID
+    pass
 
 
 class UniversityProfileUpdate(UniversityProfileBase):

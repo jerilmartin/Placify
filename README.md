@@ -4,7 +4,7 @@ Placify is a modern, enterprise-grade campus placement and hiring ecosystem desi
 
 ## 🚀 Technology Stack
 
-- **Frontend**: Next.js 15 (App Router) + TypeScript + Tailwind CSS (vanilla-styled dark glass theme)
+- **Frontend**: Next.js 16 (App Router) + TypeScript + Tailwind CSS (vanilla-styled dark glass theme)
 - **Backend API**: FastAPI (Python 3.11)
 - **Database, Auth & Realtime**: Supabase (PostgreSQL + RLS Policies + Storage buckets)
 - **AI Integrations**: Gemini 2.5 Pro / Flash APIs (ATS advice, cover letter writing, AI mock interviews, career chatbot)
@@ -30,8 +30,9 @@ Placify/
 │
 ├── supabase/             # Database migrations
 │   └── migrations/
-│       ├── 001_initial_schema.sql
-│       └── 002_extended_schema.sql
+│       ├── combined_schema.sql
+│       ├── university_student_tenant_isolation.sql
+│       └── notification_automation.sql
 │
 ├── docker-compose.yml    # DevOps orchestration
 ├── .env.example          # Consolidated environment variables
@@ -45,10 +46,15 @@ Placify/
 ### 1. Database Setup (Supabase)
 1. Create a new project on [Supabase](https://supabase.com).
 2. Go to **SQL Editor** in your Supabase dashboard.
-3. Run the migrations in order:
-   - First, run `supabase/migrations/001_initial_schema.sql`.
-   - Then, run `supabase/migrations/002_extended_schema.sql`.
-4. Enable database triggers or storage buckets for resume PDFs as needed.
+3. For a new database, run `supabase/migrations/combined_schema.sql`, followed by
+   `supabase/migrations/notification_automation.sql`.
+4. For an existing Placify database, apply the focused migration files needed
+   by your deployment, including
+   `supabase/migrations/university_student_tenant_isolation.sql` for strict
+   university cohort isolation and `supabase/migrations/notification_automation.sql`
+   for realtime application/drive alerts. Do not rerun `combined_schema.sql` over an
+   existing schema.
+5. Create the required resume/company-logo storage buckets as needed.
 
 ### 2. Environment Configuration
 Copy `.env.example` at the project root to `.env` (and also to `frontend/.env.local` and `backend/.env`):

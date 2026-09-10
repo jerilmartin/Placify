@@ -26,7 +26,7 @@ class MentorProfileBase(BaseModel):
 
 
 class MentorProfileCreate(MentorProfileBase):
-    user_id: uuid.UUID
+    pass
 
 
 class MentorProfileUpdate(MentorProfileBase):
@@ -48,7 +48,6 @@ class MentorProfileResponse(MentorProfileBase):
 
 class MentorSessionCreate(BaseModel):
     mentor_id: uuid.UUID
-    student_id: uuid.UUID
     topic: str
     scheduled_at: datetime
     duration_minutes: int = 30
@@ -58,6 +57,7 @@ class MentorSessionCreate(BaseModel):
 
 class MentorSessionResponse(MentorSessionCreate):
     id: uuid.UUID
+    student_id: uuid.UUID
     status: SessionStatus = SessionStatus.SCHEDULED
     mentor_feedback: Optional[str] = None
     student_feedback: Optional[str] = None
