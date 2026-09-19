@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import type { User, AuthState, UserRole } from "@/lib/types";
 
 interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, expectedRole?: UserRole) => Promise<User>;
   register: (data: Record<string, unknown>) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, expectedRole?: UserRole) => {
     setState((s) => ({ ...s, isLoading: true }));
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
@@ -65,6 +65,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     if (data.session) {
       const appUser = await buildUserFromSession(data.session.user, data.session.access_token);
+      const expectedRoles = expectedRole === "university"
+        ? ["university", "placement_officer"]
+        : expectedRole ? [expectedRole] : [];
+      if (expectedRoles.length > 0 && !expectedRoles.includes(appUser.role)) {
+        await supabase.auth.signOut();
+        setState({ user: null, token: null, isLoading: false, isAuthenticated: false });
+        throw new Error(`This account belongs to the ${appUser.role.replace("_", " ")} portal. Select the matching portal and try again.`);
+      }
       setState({ user: appUser, token: data.session.access_token, isLoading: false, isAuthenticated: true });
 
       // Best-effort: repair missing profile row for accounts stuck without one
@@ -73,7 +81,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // Non-fatal
       }
+      return appUser;
     }
+    setState((s) => ({ ...s, isLoading: false }));
+    throw new Error("Login succeeded but no session was created. Please try again.");
   };
 
   const register = async (data: Record<string, unknown>) => {
@@ -171,10 +182,13 @@ async function buildUserFromSession(
       return user;
     }
   } catch {
-    // Fall back to signed, server-controlled app metadata if the API is offline.
+    // Fall back to metadata if the API is offline
   }
 
-  const role = (supaUser.app_metadata?.role as UserRole) || "student";
+  const role =
+    (supaUser.app_metadata?.role as UserRole) ||
+    (supaUser.user_metadata?.role as UserRole) ||
+    "student";
   const full_name = (supaUser.user_metadata?.full_name as string) || supaUser.email || "";
 
   return {

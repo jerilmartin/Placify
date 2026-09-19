@@ -4,7 +4,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const apiClient = axios.create({
   baseURL: API_URL,
-  timeout: 30000,
+  timeout: 60000,
   headers: { "Content-Type": "application/json" },
 });
 
@@ -54,16 +54,17 @@ export const resumesApi = {
     form.append("file", file);
     return apiClient.post("/api/resumes/upload", form, {
       headers: { "Content-Type": "multipart/form-data" },
+      timeout: 120000,
     });
   },
   list: () => apiClient.get("/api/resumes"),
   getAtsScore: (resumeId: string, jobId?: string) =>
-    apiClient.get(`/api/resumes/${resumeId}/ats-score`, { params: { job_id: jobId } }),
-  improve: (resumeId: string) => apiClient.post(`/api/resumes/${resumeId}/improve`),
+    apiClient.get(`/api/resumes/${resumeId}/ats-score`, { params: { job_id: jobId }, timeout: 120000 }),
+  improve: (resumeId: string) => apiClient.post(`/api/resumes/${resumeId}/improve`, null, { timeout: 120000 }),
   syncToProfile: (resumeId: string, extractedData?: Record<string, unknown>) =>
-    apiClient.post(`/api/resumes/${resumeId}/sync-to-profile`, extractedData ? { extracted_data: extractedData } : {}),
+    apiClient.post(`/api/resumes/${resumeId}/sync-to-profile`, extractedData ? { extracted_data: extractedData } : {}, { timeout: 120000 }),
   generateCoverLetter: (resumeId: string, jobId: string) =>
-    apiClient.post("/api/resumes/cover-letter", null, { params: { resume_id: resumeId, job_id: jobId } }),
+    apiClient.post("/api/resumes/cover-letter", null, { params: { resume_id: resumeId, job_id: jobId }, timeout: 120000 }),
 };
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
@@ -100,7 +101,9 @@ export const recruitersApi = {
   getProfile: () => apiClient.get("/api/recruiters/profile"),
   createProfile: (data: Record<string, unknown>) => apiClient.post("/api/recruiters/profile", data),
   updateProfile: (data: Record<string, unknown>) => apiClient.put("/api/recruiters/profile", data),
-  getCandidates: (jobId: string) => apiClient.get("/api/recruiters/candidates", { params: { job_id: jobId } }),
+  getCandidateSources: () => apiClient.get("/api/recruiters/candidate-sources"),
+  getCandidates: (params: { job_id?: string; drive_id?: string }) => apiClient.get("/api/recruiters/candidates", { params }),
+  updateDriveApplication: (id: string, status: string) => apiClient.put(`/api/recruiters/drive-applications/${id}`, { status }),
   getJobs: () => apiClient.get("/api/recruiters/jobs"),
   getOverview: () => apiClient.get("/api/recruiters/overview"),
   listUniversities: () => apiClient.get("/api/recruiters/universities"),
@@ -150,11 +153,11 @@ export const analyticsApi = {
 // ── AI Features ───────────────────────────────────────────────────────────────
 export const aiApi = {
   careerGuidance: (message: string, history: unknown[]) =>
-    apiClient.post("/api/ai/career-guidance", { message, conversation_history: history }),
+    apiClient.post("/api/ai/career-guidance", { message, conversation_history: history }, { timeout: 120000 }),
   resumeVsJob: (resumeId: string, jobId: string) =>
-    apiClient.post("/api/ai/resume-vs-job", { resume_id: resumeId, job_id: jobId }),
-  placementRisk: () => apiClient.get("/api/ai/placement-risk"),
-  profileStrength: () => apiClient.get("/api/ai/profile-strength"),
+    apiClient.post("/api/ai/resume-vs-job", { resume_id: resumeId, job_id: jobId }, { timeout: 120000 }),
+  placementRisk: () => apiClient.get("/api/ai/placement-risk", { timeout: 120000 }),
+  profileStrength: () => apiClient.get("/api/ai/profile-strength", { timeout: 120000 }),
 };
 
 // ── Notifications ─────────────────────────────────────────────────────────────

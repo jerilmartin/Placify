@@ -2,25 +2,49 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { UploadCloud, FileText, Sparkles, Download, Share2, Check, AlertCircle, Loader2, UserCheck, MapPin, Briefcase, Code2, GraduationCap } from "lucide-react";
+import { UploadCloud, FileText, Sparkles, Check, AlertCircle, Loader2, UserCheck, MapPin, Briefcase, Code2, GraduationCap, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { jobsApi, resumesApi } from "@/lib/api";
+import { jobsApi, resumesApi, studentsApi } from "@/lib/api";
 import { toast } from "sonner";
+
+interface EducationEntry { degree?: string; institution?: string; year?: string | number; cgpa?: string | number }
+interface ExperienceEntry { role?: string; company?: string; duration?: string; description?: string; skills_used?: string[] }
+interface ProjectEntry { name?: string; description?: string; github_url?: string; tech_stack?: string[] }
+interface ExtractedResumeData extends Record<string, unknown> {
+  name?: string; email?: string; phone?: string; location?: string; bio?: string;
+  linkedin?: string; github?: string; skills?: string[]; achievements?: string[];
+  education?: EducationEntry[]; experience?: ExperienceEntry[]; projects?: ProjectEntry[];
+}
+interface ResumeRecord {
+  id?: string; resume_id?: string; filename?: string; original_filename?: string;
+  created_at?: string; extracted_data?: ExtractedResumeData;
+}
+interface AtsScore {
+  overall_score?: number; issues?: string[]; tips?: string[];
+  specific_improvements?: { section?: string; current?: string; suggestion?: string }[];
+  category_scores?: { keyword_match?: number; formatting_structure?: number; readability?: number; action_verbs_impact?: number };
+}
+interface SyncResult { message: string; synced_fields?: string[]; profile_completion?: number }
+interface JobTargetSource { id: string; title: string; company: string }
+interface DriveTargetSource { id: string; title: string; role?: string; company_name: string }
+interface ApiError { response?: { data?: { detail?: string } } }
 
 export default function ResumePage() {
   const [loading, setLoading] = useState(false);
-  const [activeResume, setActiveResume] = useState<any>(null);
-  const [resumesList, setResumesList] = useState<any[]>([]);
-  const [atsScore, setAtsScore] = useState<any>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [activeResume, setActiveResume] = useState<ResumeRecord | null>(null);
+  const [resumesList, setResumesList] = useState<ResumeRecord[]>([]);
+  const [atsScore, setAtsScore] = useState<AtsScore | null>(null);
   const [improving, setImproving] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<any>(null);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [targets, setTargets] = useState<{ id: string; label: string }[]>([]);
   const [targetId, setTargetId] = useState("");
   const [coverLetter, setCoverLetter] = useState("");
   const [generatingCover, setGeneratingCover] = useState(false);
+  const [profileHasResumeData, setProfileHasResumeData] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchAtsScore = async (resumeId: string) => {
@@ -58,12 +82,19 @@ export default function ResumePage() {
         setActiveResume(latest);
         if (latest.id) await fetchAtsScore(latest.id);
       }
-    }).catch((err) => console.warn("Failed to fetch resumes:", err));
-    Promise.all([jobsApi.list(), jobsApi.listDrives()]).then(([jobs, drives]) => {
+    }).catch((err) => console.warn("Failed to fetch resumes:", err))
+      .finally(() => setInitialLoading(false));
+    studentsApi.getProfile().then(({ data }) => {
+      setProfileHasResumeData(Boolean(
+        data?.profile_completion > 20 || data?.skills?.length || data?.projects?.length || data?.work_experience?.length
+      ));
+    }).catch(() => setProfileHasResumeData(false));
+    Promise.allSettled([jobsApi.list(), jobsApi.listDrives()]).then(([jobs, drives]) => {
       const items = [
-        ...(jobs.data || []).map((job: any) => ({ id: job.id, label: `${job.title} · ${job.company}` })),
-        ...(drives.data || []).map((drive: any) => ({ id: drive.id, label: `${drive.role || drive.title} · ${drive.company_name}` })),
+        ...((jobs.status === "fulfilled" ? jobs.value.data || [] : []) as JobTargetSource[]).map((job) => ({ id: job.id, label: `${job.title} · ${job.company}` })),
+        ...((drives.status === "fulfilled" ? drives.value.data || [] : []) as DriveTargetSource[]).map((drive) => ({ id: drive.id, label: `${drive.role || drive.title} · ${drive.company_name}` })),
       ];
+
       setTargets(items);
       setTargetId(items[0]?.id || "");
     }).catch(() => setTargets([]));
@@ -94,7 +125,7 @@ export default function ResumePage() {
     try {
       const res = await resumesApi.improve(resumeId);
       const data = res.data;
-      setAtsScore((prev: any) => ({
+      setAtsScore((prev) => ({
         ...prev,
         overall_score: data.ats_score ?? prev?.overall_score ?? 0,
         issues: data.issues ?? [],
@@ -109,35 +140,41 @@ export default function ResumePage() {
             }
           : prev?.category_scores,
       }));
-      toast.success("Gemini AI improvement suggestions loaded!");
+      toast.success("Resume recommendations updated");
     } catch {
-      toast.error("Could not load AI improvements. Make sure backend and Gemini API are running.");
+      toast.error("Could not update resume recommendations. Check that the backend is running.");
     } finally {
       setImproving(false);
     }
   };
 
   const handleSync = async () => {
-    const resumeId = activeResume?.id || activeResume?.resume_id || "latest";
+    const resumeId = activeResume?.id || activeResume?.resume_id;
     const extractedData = activeResume?.extracted_data;
-    if (!resumeId && !extractedData) { toast.error("Please upload a resume first"); return; }
+    if (!activeResume && !extractedData) {
+      toast.error("Please upload a resume first");
+      return;
+    }
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await resumesApi.syncToProfile(resumeId, extractedData);
+      const res = await resumesApi.syncToProfile(resumeId || "latest", extractedData);
       const data = res.data;
       setSyncResult(data);
       if (data.synced_fields && data.synced_fields.length > 0) {
         toast.success(`✅ ${data.message}`);
+        // Notify layout to refresh sidebar profile card
+        window.dispatchEvent(new CustomEvent("placify:profile-updated"));
       } else {
         toast.info(data.message || "Profile already up to date.");
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Failed to sync to profile. Make sure you have a student profile set up.");
+    } catch (err: unknown) {
+      toast.error((err as ApiError).response?.data?.detail || "Failed to sync to profile. Make sure you have a student profile set up.");
     } finally {
       setSyncing(false);
     }
   };
+
 
   const handleFileUpload = async (file: File) => {
     if (!file) return;
@@ -156,11 +193,25 @@ export default function ResumePage() {
       }
 
       fetchResumes().catch(err => console.warn(err));
-      toast.success("Resume parsed! Click 'Sync to Profile' to update your profile.");
+      toast.success("Resume saved. Review the details, then sync any updates to your profile.");
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Upload error:", err);
-      setError(err.response?.data?.detail || "Failed to process resume. Please ensure you are logged in.");
+      const apiErr = err as ApiError;
+      const isTimeout =
+        apiErr.code === "ECONNABORTED" ||
+        apiErr.message?.toLowerCase().includes("timeout");
+
+      if (isTimeout) {
+        setError(
+          "Resume processing took longer than expected. The server might still be finalizing the AI parse — please refresh the page in a few moments to see the results."
+        );
+      } else {
+        setError(
+          apiErr.response?.data?.detail ||
+          "Failed to process resume. Please ensure you are logged in and your backend is running."
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -211,17 +262,14 @@ export default function ResumePage() {
       <div className="mb-6 flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Resume</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Parse with ML + Gemini AI, then sync directly to your profile.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Keep one current resume, review the extracted details, and sync changes to your profile.</p>
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
-          <Button variant="outline" size="sm" disabled={!activeResume}><Download className="mr-1.5 h-3.5 w-3.5" /> Download</Button>
-          <Button variant="outline" size="sm" disabled={!activeResume}><Share2 className="mr-1.5 h-3.5 w-3.5" /> Share</Button>
           <Button variant="outline" size="sm" disabled={!activeResume || improving} onClick={handleImprove}>
             {improving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
-            {improving ? "Analyzing..." : "Improve with AI"}
+            {improving ? "Analyzing..." : "Review resume"}
           </Button>
-          <Button size="sm" disabled={!activeResume || syncing} onClick={handleSync}
-            className="bg-green-600 hover:bg-green-700 text-white">
+          <Button size="sm" disabled={!activeResume || syncing} onClick={handleSync}>
             {syncing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
             {syncing ? "Syncing..." : "Sync to Profile"}
           </Button>
@@ -235,21 +283,33 @@ export default function ResumePage() {
         </div>
       )}
 
+      {!initialLoading && !activeResume && profileHasResumeData && (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-border bg-surface p-4 text-sm">
+          <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+          <div>
+            <div className="font-medium">Your profile already contains resume information</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Your profile is intact. Upload your latest resume once to restore resume analysis, version history, and cover-letter tools.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Sync result banner */}
       {syncResult && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           className={`mb-4 rounded-lg border p-4 text-sm ${
-            syncResult.synced_fields?.length > 0
+            (syncResult.synced_fields?.length ?? 0) > 0
               ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400"
               : "border-border bg-surface text-muted-foreground"
           }`}
         >
           <div className="font-medium">{syncResult.message}</div>
-          {syncResult.synced_fields?.length > 0 && (
+          {(syncResult.synced_fields?.length ?? 0) > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {syncResult.synced_fields.map((f: string) => (
+              {syncResult.synced_fields?.map((f) => (
                 <span key={f} className="rounded-full bg-green-500/15 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:text-green-400">
                   ✓ {fieldLabel[f] || f}
                 </span>
@@ -275,12 +335,14 @@ export default function ResumePage() {
             className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface p-10 text-center transition-colors hover:border-primary/50 hover:bg-elevated"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <UploadCloud className="h-5 w-5" />}
+              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : activeResume ? <RefreshCw className="h-5 w-5" /> : <UploadCloud className="h-5 w-5" />}
             </div>
             <div className="mt-3 text-[14px] font-medium">
-              {loading ? "Parsing resume with ML + Gemini AI..." : "Drop a new version to reparse"}
+              {loading ? "Extracting & analyzing with AI..." : activeResume ? "Upload a newer resume version" : "Upload your current resume"}
             </div>
-            <div className="mt-1 text-[12px] text-muted-foreground">PDF · DOCX · up to 10 MB</div>
+            <div className="mt-1 text-[12px] text-muted-foreground">
+              {loading ? "Parsing sections, skills, and experience with Gemini AI (takes ~30–45s)" : "PDF · DOCX · up to 10 MB"}
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -292,7 +354,9 @@ export default function ResumePage() {
           </motion.label>
 
           <div className="rounded-xl border border-border bg-surface min-h-[300px]">
-            {activeResume ? (
+            {initialLoading ? (
+              <div className="flex min-h-[300px] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            ) : activeResume ? (
               <>
                 <div className="flex items-center justify-between border-b border-border px-5 py-3">
                   <div className="flex items-center gap-2">
@@ -353,7 +417,7 @@ export default function ResumePage() {
                           <GraduationCap className="h-3 w-3" /> Education
                         </div>
                         <div className="space-y-2">
-                          {extracted.education.map((edu: any, idx: number) => (
+                          {extracted.education.map((edu, idx) => (
                             <div key={idx} className="rounded-lg border border-border bg-background p-3 text-[12px]">
                               <div className="font-semibold text-foreground">{edu.degree || "Degree"}</div>
                               {edu.institution && <div className="text-muted-foreground">{edu.institution}</div>}
@@ -374,7 +438,7 @@ export default function ResumePage() {
                           <Briefcase className="h-3 w-3" /> Experience
                         </div>
                         <div className="space-y-2">
-                          {extracted.experience.map((exp: any, idx: number) => (
+                          {extracted.experience.map((exp, idx) => (
                             <div key={idx} className="rounded-lg border border-border bg-background p-3 text-[12px]">
                               <div className="font-semibold text-foreground">{exp.role} {exp.company ? `@ ${exp.company}` : ""}</div>
                               {exp.duration && <div className="text-muted-foreground text-[11px]">{exp.duration}</div>}
@@ -399,7 +463,7 @@ export default function ResumePage() {
                           <Code2 className="h-3 w-3" /> Projects
                         </div>
                         <div className="space-y-2">
-                          {extracted.projects.map((proj: any, idx: number) => (
+                          {extracted.projects.map((proj, idx) => (
                             <div key={idx} className="rounded-lg border border-border bg-background p-3 text-[12px]">
                               <div className="flex items-center justify-between">
                                 <div className="font-semibold text-foreground">{proj.name}</div>
@@ -461,7 +525,7 @@ export default function ResumePage() {
                         Push extracted data to your profile
                       </div>
                       <Button size="sm" className="w-full bg-green-600 hover:bg-green-700 text-white text-[12px]"
-                        disabled={syncing} onClick={handleSync}>
+                        disabled={!activeResume || syncing} onClick={handleSync}>
                         {syncing ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <UserCheck className="mr-1.5 h-3 w-3" />}
                         {syncing ? "Syncing..." : "Sync to Profile"}
                       </Button>
@@ -472,8 +536,8 @@ export default function ResumePage() {
             ) : (
               <div className="flex h-full flex-col items-center justify-center p-12 text-center text-muted-foreground opacity-60">
                 <FileText className="mb-3 h-10 w-10" />
-                <p>Upload a resume to instantly see ML + Gemini extracted details</p>
-                <p className="mt-1 text-xs">Skills, Education, Experience, Projects and ATS Score will appear here</p>
+                <p>{profileHasResumeData ? "Your profile is already updated" : "No saved resume yet"}</p>
+                <p className="mt-1 max-w-md text-xs">Upload your current file to enable resume review, version history, and tailored cover letters.</p>
               </div>
             )}
           </div>
@@ -482,9 +546,9 @@ export default function ResumePage() {
         {/* Right: suggestions + versions */}
         <div className="space-y-4">
           {activeResume && (
-            <div className="rounded-xl border border-border bg-gradient-to-br from-primary/10 via-surface to-surface p-5">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
-                <Sparkles className="h-3 w-3" /> AI suggestions
+            <div className="rounded-xl border border-border bg-surface p-5">
+              <div className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
+                <Sparkles className="h-3.5 w-3.5 text-muted-foreground" /> Resume recommendations
               </div>
               <ul className="mt-4 space-y-3">
                 {displaySuggestions.map((s, idx) => (
@@ -498,10 +562,10 @@ export default function ResumePage() {
                   </li>
                 ))}
               </ul>
-              {atsScore?.specific_improvements?.length > 0 && (
+              {(atsScore?.specific_improvements?.length ?? 0) > 0 && (
                 <div className="mt-5 space-y-3 border-t border-border pt-4">
                   <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Suggested rewrites</div>
-                  {atsScore.specific_improvements.map((item: { section?: string; current?: string; suggestion?: string }, index: number) => (
+                  {atsScore?.specific_improvements?.map((item, index) => (
                     <div key={`${item.section}-${index}`} className="rounded-lg border border-border bg-background p-3 text-xs">
                       <div className="font-semibold text-primary">{item.section || "Resume section"}</div>
                       {item.current && <div className="mt-2 text-muted-foreground line-through decoration-destructive/60">{item.current}</div>}
@@ -513,15 +577,16 @@ export default function ResumePage() {
             </div>
           )}
 
-          {activeResume && (
-            <div className="rounded-xl border border-border bg-surface p-5">
+          <div className="rounded-xl border border-border bg-surface p-5">
               <h3 className="text-[14px] font-medium">Tailored cover letter</h3>
-              <p className="mt-1 text-xs text-muted-foreground">Generated from this resume and the selected role.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {activeResume ? "Create a draft from your saved resume and the selected role." : "Upload a resume to enable tailored cover letters."}
+              </p>
               <select value={targetId} onChange={(event) => setTargetId(event.target.value)} className="mt-3 h-9 w-full rounded-md border border-border bg-background px-2 text-xs">
                 <option value="">Select a job or drive</option>
                 {targets.map((target) => <option key={target.id} value={target.id}>{target.label}</option>)}
               </select>
-              <Button className="mt-3 w-full" size="sm" disabled={!targetId || generatingCover} onClick={handleGenerateCoverLetter}>
+              <Button className="mt-3 w-full" size="sm" disabled={!activeResume || !targetId || generatingCover} onClick={handleGenerateCoverLetter}>
                 {generatingCover ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FileText className="mr-1.5 h-3.5 w-3.5" />}
                 {generatingCover ? "Generating…" : "Generate cover letter"}
               </Button>
@@ -532,7 +597,6 @@ export default function ResumePage() {
                 </div>
               )}
             </div>
-          )}
 
           <div className="rounded-xl border border-border bg-surface">
             <div className="border-b border-border px-5 py-3">
@@ -540,7 +604,7 @@ export default function ResumePage() {
             </div>
             <ul className="divide-y divide-border">
               {resumesList.length > 0 ? (
-                resumesList.map((r: any) => (
+                resumesList.map((r) => (
                   <li 
                     key={r.id} 
                     className="flex items-center justify-between px-5 py-3 cursor-pointer hover:bg-elevated transition-colors"
@@ -556,7 +620,7 @@ export default function ResumePage() {
                         {r.original_filename}
                       </div>
                       <div className="text-[11px] text-muted-foreground">
-                        {new Date(r.created_at).toLocaleDateString()}
+                        {r.created_at ? new Date(r.created_at).toLocaleDateString() : "Saved resume"}
                       </div>
                     </div>
                     {activeResume?.id === r.id && (

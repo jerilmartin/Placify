@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/contexts/AuthContext";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppSidebar, type PortalRole } from "@/components/app-sidebar";
 import { Topbar } from "@/components/topbar";
@@ -32,7 +32,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
   }, [isLoading, isAuthenticated, user, router]);
 
   // Fetch real profile data for the sidebar
-  useEffect(() => {
+  const refreshSidebarInfo = useCallback(() => {
     if (!user) return;
     supabase
       .from("student_profiles")
@@ -57,6 +57,17 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         }
       });
   }, [user]);
+
+  useEffect(() => {
+    refreshSidebarInfo();
+  }, [refreshSidebarInfo]);
+
+  // Listen for profile updates triggered from any page (e.g. resume sync)
+  useEffect(() => {
+    const handler = () => refreshSidebarInfo();
+    window.addEventListener("placify:profile-updated", handler);
+    return () => window.removeEventListener("placify:profile-updated", handler);
+  }, [refreshSidebarInfo]);
 
   if (isLoading) {
     return (

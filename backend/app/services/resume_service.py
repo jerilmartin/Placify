@@ -32,7 +32,7 @@ def parse_resume_pdf(file_content: bytes, filename: str) -> str:
         logger.error(f"Resume parse error for {filename}: {e}")
         text = ""
 
-    return text.strip()
+    return text.replace("\x00", "").strip()
 
 
 def _extract_pdf_text(content: bytes) -> str:
@@ -44,7 +44,7 @@ def _extract_pdf_text(content: bytes) -> str:
             for page in pdf.pages:
                 page_text = page.extract_text()
                 if page_text:
-                    pages.append(page_text)
+                    pages.append(page_text.replace("\x00", ""))
             return "\n".join(pages)
     except ImportError:
         logger.warning("pdfplumber not installed, trying PyPDF2")
@@ -54,7 +54,7 @@ def _extract_pdf_text(content: bytes) -> str:
     try:
         import PyPDF2
         reader = PyPDF2.PdfReader(io.BytesIO(content))
-        pages = [page.extract_text() for page in reader.pages if page.extract_text()]
+        pages = [page.extract_text().replace("\x00", "") for page in reader.pages if page.extract_text()]
         return "\n".join(pages)
     except Exception as e:
         logger.error(f"PyPDF2 error: {e}")

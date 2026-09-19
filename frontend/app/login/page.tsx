@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowRight, GraduationCap, Users, Building2, ShieldCheck } from "lucide-react";
+import { ArrowRight, GraduationCap, Users, Building2, LockKeyhole } from "lucide-react";
 import { useState } from "react";
 import { BrandLockup } from "@/components/brand";
 import { Button } from "@/components/ui/button";
@@ -11,23 +11,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 
-const portals: { key: string; label: string; icon: typeof GraduationCap }[] = [
-  { key: "student", label: "Student", icon: GraduationCap },
-  { key: "recruiter", label: "Recruiter", icon: Users },
-  { key: "university", label: "Placement Officer", icon: Building2 },
-  { key: "admin", label: "Platform Admin", icon: ShieldCheck },
+import type { UserRole } from "@/lib/types";
+
+const portals: { key: UserRole; label: string; description: string; icon: typeof GraduationCap }[] = [
+  { key: "student", label: "Student", description: "Applications and career preparation", icon: GraduationCap },
+  { key: "recruiter", label: "Recruiter", description: "Hiring and candidate management", icon: Users },
+  { key: "university", label: "Placement team", description: "Campus drives and placement operations", icon: Building2 },
 ];
 
 const ROLE_ROUTES: Record<string, string> = {
   student: "/student/dashboard",
   recruiter: "/recruiter/dashboard",
   university: "/university/dashboard",
+  placement_officer: "/university/dashboard",
   admin: "/admin/dashboard",
   mentor: "/mentor/dashboard",
 };
 
 export default function Login() {
-  const [role, setRole] = useState("student");
+  const [role, setRole] = useState<UserRole>("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -40,9 +42,8 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
-      // After login, user metadata has the role — redirect based on selected role tab
-      router.push(ROLE_ROUTES[role] ?? "/student/dashboard");
+      const signedInUser = await login(email, password, role);
+      router.push(ROLE_ROUTES[signedInUser.role] ?? "/student/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Login failed. Please check your credentials.");
     } finally {
@@ -66,7 +67,7 @@ export default function Login() {
               Sign in to your Placify workspace.
             </p>
 
-            <div className="mt-8 grid grid-cols-4 gap-1.5 rounded-lg border border-border bg-surface p-1">
+            <div className="mt-8 grid grid-cols-3 gap-1 rounded-xl border border-border bg-muted/30 p-1" role="tablist" aria-label="Choose your portal">
               {portals.map((p) => {
                 const Icon = p.icon;
                 const active = role === p.key;
@@ -75,18 +76,23 @@ export default function Login() {
                     key={p.key}
                     type="button"
                     onClick={() => setRole(p.key)}
-                    className={`group flex flex-col items-center gap-1 rounded-md px-1.5 py-2 text-[11px] transition-colors ${
-                      active ? "bg-elevated text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    className={`group flex items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors ${
+                      active ? "bg-background text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
                     }`}
+                    role="tab"
+                    aria-selected={active}
                     aria-label={p.label}
                     title={p.label}
                   >
-                    <Icon className={`h-3.5 w-3.5 ${active ? "text-primary" : ""}`} />
-                    <span className="hidden truncate md:inline">{p.label.split(" ")[0]}</span>
+                    <Icon className="h-4 w-4" />
+                    <span>{p.label}</span>
                   </button>
                 );
               })}
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {portals.find((portal) => portal.key === role)?.description}
+            </p>
 
             <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-1.5">
@@ -126,17 +132,9 @@ export default function Login() {
               )}
 
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Signing in…" : <>Continue <ArrowRight className="ml-1.5 h-4 w-4" /></>}
+                {loading ? "Signing in…" : <>Continue to {portals.find((portal) => portal.key === role)?.label} <ArrowRight className="ml-1.5 h-4 w-4" /></>}
               </Button>
             </form>
-
-            <div className="my-6 flex items-center gap-3 text-[11px] uppercase tracking-widest text-muted-foreground">
-              <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" type="button">SSO · Google</Button>
-              <Button variant="outline" type="button">SSO · Microsoft</Button>
-            </div>
 
             <p className="mt-6 text-center text-[12px] text-muted-foreground">
               Don&apos;t have an account?{" "}
@@ -151,25 +149,23 @@ export default function Login() {
 
       {/* Right: brand panel */}
       <div className="relative hidden overflow-hidden border-l border-border bg-surface lg:block">
-        <div className="aurora opacity-80" />
         <div className="relative flex h-full flex-col justify-between p-10">
           <div className="max-w-md">
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background/40 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur">
-              <span className="h-1.5 w-1.5 rounded-full bg-success" /> Placement OS · v4.2
+              <LockKeyhole className="h-3.5 w-3.5" /> Secure placement workspace
             </div>
             <h2 className="mt-6 text-3xl font-semibold tracking-[-0.02em] md:text-4xl">
               Every offer letter starts with a great match.
             </h2>
             <p className="mt-3 text-muted-foreground">
-              Placify runs India&apos;s most active placement cells — one workspace for
-              students, recruiters, and campus leadership.
+              One focused workspace for students, recruiters, and campus placement teams.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3">
             {[
-              { k: "92%", l: "Placement rate" },
-              { k: "₹34L", l: "Avg. package" },
-              { k: "450+", l: "Recruiters" },
+              { k: "01", l: "Student readiness" },
+              { k: "02", l: "Campus operations" },
+              { k: "03", l: "Recruiter workflow" },
             ].map((s) => (
               <div key={s.l} className="rounded-lg border border-border bg-background/40 p-4 backdrop-blur">
                 <div className="text-2xl font-semibold tracking-tight">{s.k}</div>

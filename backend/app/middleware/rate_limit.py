@@ -4,16 +4,18 @@ Simple in-memory window-based rate limiting
 """
 
 import time
-from fastapi import Request, HTTPException, status
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from collections import defaultdict
 from typing import Dict, Tuple
+from app.config import settings
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app,
-        limit: int = 100,  # Max requests
+        limit: int = 200,  # Max requests
         window_seconds: int = 60  # Time window
     ):
         super().__init__(app)
@@ -25,8 +27,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         client_ip = request.client.host if request.client else "unknown"
         
-        # Bypass for documentation or health checks
-        if request.url.path in ["/docs", "/redoc", "/openapi.json", "/health", "/"]:
+        # Bypass for documentation, health checks, or local development
+        if (
+            request.url.path in ["/docs", "/redoc", "/openapi.json", "/health", "/"]
+            or (settings.environment == "development" and client_ip in ("127.0.0.1", "localhost", "::1", "testclient"))
+        ):
             return await call_next(request)
 
         current_time = time.time()
@@ -37,9 +42,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             self.clients[client_ip] = (1, current_time)
         else:
             if request_count >= self.limit:
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail="Rate limit exceeded. Please try again later."
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded. Please try again later."}
                 )
             self.clients[client_ip] = (request_count + 1, window_start)
 

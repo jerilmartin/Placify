@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Building2, CalendarRange, Loader2, Send, XCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Building2, CalendarRange, Check, ChevronDown, Loader2, Plus, Search, Send, XCircle, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,65 @@ interface UniversityOption {
   location?: string;
 }
 
+export interface BranchDefinition {
+  name: string;
+  aliases: string[];
+}
+
+const BRANCH_CATALOG: BranchDefinition[] = [
+  // Computer Science & IT
+  { name: "Computer Science & Engineering", aliases: ["cs", "cse", "computer science", "comp sci", "computer engineering", "software", "software engineering"] },
+  { name: "Information Technology", aliases: ["it", "information technology", "info tech"] },
+  { name: "Artificial Intelligence & Machine Learning", aliases: ["ai", "aiml", "ml", "artificial intelligence", "machine learning"] },
+  { name: "Data Science & Analytics", aliases: ["ds", "data science", "csds", "analytics", "big data"] },
+  { name: "Cyber Security & Information Assurance", aliases: ["cyber", "cybersecurity", "security", "infosec"] },
+  { name: "Cloud Computing & DevOps", aliases: ["cloud", "devops"] },
+  { name: "Internet of Things (IoT)", aliases: ["iot", "internet of things"] },
+
+  // Circuit Branches
+  { name: "Electronics & Communication Engineering", aliases: ["ece", "electronics", "ec", "telecom", "communication"] },
+  { name: "Electrical & Electronics Engineering", aliases: ["eee", "electrical", "ee"] },
+  { name: "Instrumentation & Control Engineering", aliases: ["ice", "instrumentation"] },
+
+  // Core Engineering
+  { name: "Mechanical Engineering", aliases: ["mech", "mechanical", "me"] },
+  { name: "Civil Engineering", aliases: ["civil", "ce"] },
+  { name: "Chemical Engineering", aliases: ["chem", "chemical", "ch"] },
+  { name: "Aerospace & Aeronautical Engineering", aliases: ["aero", "aerospace", "aeronautical"] },
+  { name: "Automobile Engineering", aliases: ["auto", "automobile"] },
+  { name: "Biotechnology & Biomedical Engineering", aliases: ["biotech", "biomedical", "bio"] },
+  { name: "Robotics & Automation", aliases: ["robotics", "automation", "mechatronics"] },
+  { name: "Industrial & Production Engineering", aliases: ["industrial", "production", "pie"] },
+
+  // Computer Applications & Pure Sciences
+  { name: "Bachelor of Computer Applications (BCA)", aliases: ["bca"] },
+  { name: "Master of Computer Applications (MCA)", aliases: ["mca"] },
+  { name: "B.Sc Computer Science / IT", aliases: ["bsc cs", "bsc it", "bsc"] },
+  { name: "M.Sc Computer Science / IT / Data Science", aliases: ["msc cs", "msc it", "msc"] },
+
+  // Business & Management
+  { name: "MBA / Management", aliases: ["mba", "management", "pgdm"] },
+  { name: "BBA (Business Administration)", aliases: ["bba"] },
+  { name: "B.Com / M.Com (Finance & Commerce)", aliases: ["bcom", "mcom", "commerce", "finance"] },
+
+  // Umbrella
+  { name: "All Engineering Branches", aliases: ["all engineering", "engineering", "btech", "be"] },
+  { name: "All Branches (Any Degree)", aliases: ["all", "any", "all branches", "open"] },
+];
+
+const QUICK_BRANCH_PICKS = [
+  { label: "CS / CSE", value: "Computer Science & Engineering" },
+  { label: "IT", value: "Information Technology" },
+  { label: "AI / ML", value: "Artificial Intelligence & Machine Learning" },
+  { label: "ECE", value: "Electronics & Communication Engineering" },
+  { label: "EEE", value: "Electrical & Electronics Engineering" },
+  { label: "Mechanical", value: "Mechanical Engineering" },
+  { label: "Civil", value: "Civil Engineering" },
+  { label: "MCA / BCA", value: "Master of Computer Applications (MCA)" },
+  { label: "All Engineering", value: "All Engineering Branches" },
+  { label: "All Branches", value: "All Branches (Any Degree)" },
+];
+
 const EMPTY_FORM = {
   university_id: "",
   title: "",
@@ -26,7 +85,6 @@ const EMPTY_FORM = {
   registration_deadline: "",
   min_cgpa: "",
   max_backlogs: "0",
-  eligible_branches: "",
   graduation_year: "",
 };
 
@@ -42,6 +100,10 @@ export default function RecruiterDriveRequestsPage() {
   const [universities, setUniversities] = useState<UniversityOption[]>([]);
   const [requests, setRequests] = useState<DriveRequest[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
+  const [branchSearch, setBranchSearch] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -62,17 +124,58 @@ export default function RecruiterDriveRequestsPage() {
   };
 
   useEffect(() => {
-    Promise.all([
-      recruitersApi.listUniversities(),
-      recruitersApi.listDriveRequests(),
-    ])
-      .then(([universitiesResponse, requestsResponse]) => {
-        setUniversities(universitiesResponse.data);
-        setRequests(requestsResponse.data);
-      })
-      .catch(() => toast.error("Could not load campus-drive requests"))
-      .finally(() => setLoading(false));
+    load();
   }, []);
+
+  // Close branch dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredBranches = useMemo(() => {
+    const q = branchSearch.trim().toLowerCase();
+    if (!q) return BRANCH_CATALOG;
+    return BRANCH_CATALOG.filter(
+      (b) =>
+        b.name.toLowerCase().includes(q) ||
+        b.aliases.some((a) => a.toLowerCase().includes(q) || q.includes(a.toLowerCase()))
+    );
+  }, [branchSearch]);
+
+  const selectBranch = (branchName: string) => {
+    if (!selectedBranches.includes(branchName)) {
+      setSelectedBranches((prev) => [...prev, branchName]);
+    }
+    setBranchSearch("");
+    setIsDropdownOpen(false);
+  };
+
+  const removeBranch = (branchName: string) => {
+    setSelectedBranches((prev) => prev.filter((b) => b !== branchName));
+  };
+
+  const toggleBranch = (branchName: string) => {
+    if (selectedBranches.includes(branchName)) {
+      removeBranch(branchName);
+    } else {
+      setSelectedBranches((prev) => [...prev, branchName]);
+    }
+  };
+
+  const addCustomBranch = () => {
+    const trimmed = branchSearch.trim();
+    if (trimmed && !selectedBranches.includes(trimmed)) {
+      setSelectedBranches((prev) => [...prev, trimmed]);
+      setBranchSearch("");
+      setIsDropdownOpen(false);
+    }
+  };
 
   const payload = () => ({
     university_id: form.university_id,
@@ -86,7 +189,7 @@ export default function RecruiterDriveRequestsPage() {
     eligibility: {
       min_cgpa: form.min_cgpa ? Number(form.min_cgpa) : undefined,
       max_backlogs: form.max_backlogs ? Number(form.max_backlogs) : 0,
-      eligible_branches: form.eligible_branches.split(",").map((branch) => branch.trim()).filter(Boolean),
+      eligible_branches: selectedBranches,
       graduation_year: form.graduation_year ? Number(form.graduation_year) : undefined,
     },
   });
@@ -115,6 +218,7 @@ export default function RecruiterDriveRequestsPage() {
       }
       setEditingId(null);
       setForm(EMPTY_FORM);
+      setSelectedBranches([]);
       await load();
     } catch {
       toast.error("Could not submit the campus-drive request");
@@ -136,9 +240,9 @@ export default function RecruiterDriveRequestsPage() {
       registration_deadline: request.registration_deadline || "",
       min_cgpa: request.eligibility?.min_cgpa?.toString() || "",
       max_backlogs: request.eligibility?.max_backlogs?.toString() || "0",
-      eligible_branches: request.eligibility?.eligible_branches?.join(", ") || "",
       graduation_year: request.eligibility?.graduation_year?.toString() || "",
     });
+    setSelectedBranches(request.eligibility?.eligible_branches || []);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -180,15 +284,166 @@ export default function RecruiterDriveRequestsPage() {
           <Field label="Registration deadline" type="date" value={form.registration_deadline} onChange={(value) => setForm((formValue) => ({ ...formValue, registration_deadline: value }))} />
           <Field label="Minimum CGPA" type="number" value={form.min_cgpa} onChange={(value) => setForm((formValue) => ({ ...formValue, min_cgpa: value }))} />
           <Field label="Maximum backlogs" type="number" value={form.max_backlogs} onChange={(value) => setForm((formValue) => ({ ...formValue, max_backlogs: value }))} />
-          <label className="space-y-1.5 text-xs text-muted-foreground md:col-span-2">Eligible branches
-            <Input value={form.eligible_branches} onChange={(event) => setForm((value) => ({ ...value, eligible_branches: event.target.value }))} placeholder="Computer Science, Information Technology, ECE" />
-          </label>
+
+          {/* Eligible branches — Searchable Autocomplete Combobox */}
+          <div className="space-y-2 md:col-span-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">
+                Eligible branches / courses
+              </label>
+              {selectedBranches.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedBranches([])}
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  Clear all ({selectedBranches.length})
+                </button>
+              )}
+            </div>
+
+            {/* Quick-Pick Pill Shortcuts */}
+            <div className="flex flex-wrap items-center gap-1.5 pb-1">
+              <span className="text-[11px] text-muted-foreground mr-1">Popular:</span>
+              {QUICK_BRANCH_PICKS.map((pick) => {
+                const isSelected = selectedBranches.includes(pick.value);
+                return (
+                  <button
+                    key={pick.label}
+                    type="button"
+                    onClick={() => toggleBranch(pick.value)}
+                    className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
+                      isSelected
+                        ? "border-primary bg-primary/15 text-primary"
+                        : "border-border bg-background/50 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    }`}
+                  >
+                    {isSelected ? "✓ " : "+ "}
+                    {pick.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Combobox Search Input & Dropdown */}
+            <div ref={dropdownRef} className="relative">
+              <div className="relative flex items-center">
+                <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  value={branchSearch}
+                  onChange={(e) => {
+                    setBranchSearch(e.target.value);
+                    setIsDropdownOpen(true);
+                  }}
+                  onFocus={() => setIsDropdownOpen(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (filteredBranches.length > 0) {
+                        selectBranch(filteredBranches[0].name);
+                      } else if (branchSearch.trim()) {
+                        addCustomBranch();
+                      }
+                    } else if (e.key === "Escape") {
+                      setIsDropdownOpen(false);
+                    }
+                  }}
+                  placeholder="Search branches or aliases (e.g. 'CS', 'IT', 'ECE', 'AI', 'Mechanical', or custom)..."
+                  className="h-10 pl-9 pr-10 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsDropdownOpen((prev) => !prev)}
+                  className="absolute right-2.5 p-1 text-muted-foreground hover:text-foreground"
+                  aria-label="Toggle branch directory"
+                >
+                  <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+              </div>
+
+              {/* Suggestions Dropdown */}
+              {isDropdownOpen && (
+                <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-border bg-popover shadow-xl p-1 text-sm">
+                  {filteredBranches.length > 0 ? (
+                    filteredBranches.map((branch) => {
+                      const isSelected = selectedBranches.includes(branch.name);
+                      return (
+                        <div
+                          key={branch.name}
+                          onClick={() => selectBranch(branch.name)}
+                          className={`flex items-center justify-between cursor-pointer rounded-md px-3 py-2 text-xs transition-colors ${
+                            isSelected
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "hover:bg-accent hover:text-accent-foreground"
+                          }`}
+                        >
+                          <div>
+                            <div className="font-medium text-foreground">{branch.name}</div>
+                            <div className="text-[11px] text-muted-foreground">
+                              Aliases: {branch.aliases.slice(0, 4).join(", ")}
+                            </div>
+                          </div>
+                          {isSelected ? (
+                            <Check className="h-4 w-4 text-primary shrink-0" />
+                          ) : (
+                            <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="p-2 text-xs text-muted-foreground text-center">
+                      No standard branch found for "{branchSearch}".
+                    </div>
+                  )}
+
+                  {/* Add Custom Branch Entry */}
+                  {branchSearch.trim() &&
+                    !filteredBranches.some(
+                      (b) => b.name.toLowerCase() === branchSearch.trim().toLowerCase()
+                    ) && (
+                      <div
+                        onClick={addCustomBranch}
+                        className="mt-1 flex items-center gap-2 border-t border-border/60 p-2 text-xs font-medium text-primary hover:bg-primary/10 cursor-pointer rounded"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Add custom branch: "{branchSearch.trim()}"</span>
+                      </div>
+                    )}
+                </div>
+              )}
+            </div>
+
+            {/* Selected Branch Badges */}
+            {selectedBranches.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1.5">
+                <span className="text-xs text-muted-foreground self-center mr-1">Selected:</span>
+                {selectedBranches.map((branch) => (
+                  <span
+                    key={branch}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
+                  >
+                    {branch}
+                    <button
+                      type="button"
+                      onClick={() => removeBranch(branch)}
+                      className="rounded-full hover:bg-primary/20 p-0.5 hover:text-destructive transition-colors"
+                      title={`Remove ${branch}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           <label className="space-y-1.5 text-xs text-muted-foreground md:col-span-2">Job description
             <textarea value={form.description} onChange={(event) => setForm((value) => ({ ...value, description: event.target.value }))} rows={5} className="w-full rounded-md border border-border bg-background p-3 text-sm text-foreground" />
           </label>
         </div>
         <div className="mt-4 flex justify-end gap-2">
-          {editingId && <Button type="button" variant="outline" onClick={() => { setEditingId(null); setForm(EMPTY_FORM); }}>Discard edits</Button>}
+          {editingId && <Button type="button" variant="outline" onClick={() => { setEditingId(null); setForm(EMPTY_FORM); setSelectedBranches([]); }}>Discard edits</Button>}
           <Button type="submit" disabled={saving || universities.length === 0}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}{editingId ? "Resubmit" : "Send for approval"}</Button>
         </div>
       </form>
@@ -202,11 +457,18 @@ export default function RecruiterDriveRequestsPage() {
                 <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{request.title}</h3><span className={`rounded-full px-2 py-0.5 text-xs capitalize ${STATUS_STYLE[request.status]}`}>{request.status.replace("_", " ")}</span></div>
                 <p className="mt-1 text-sm text-muted-foreground">{request.role} · {request.university_profiles?.name || "University"}{request.package_lpa ? ` · ₹${request.package_lpa} LPA` : ""}</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground"><span className="flex items-center gap-1"><CalendarRange className="h-3.5 w-3.5" />{request.drive_date || "Date to be decided"}</span><span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5" />{request.company_name}</span></div>
+                {request.eligibility?.eligible_branches && request.eligibility.eligible_branches.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {request.eligibility.eligible_branches.map((b: string) => (
+                      <span key={b} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{b}</span>
+                    ))}
+                  </div>
+                )}
                 {request.review_notes && <div className="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-100"><strong>Placement officer:</strong> {request.review_notes}</div>}
                 {request.placement_drive_id && <p className="mt-3 text-xs text-emerald-400">Approved and published to eligible students.</p>}
               </div>
               <div className="flex gap-2">
-                {request.status === "changes_requested" && <Button size="sm" onClick={() => editRequest(request)}>Edit & resubmit</Button>}
+                {request.status === "changes_requested" && <Button size="sm" onClick={() => editRequest(request)}>Edit &amp; resubmit</Button>}
                 {["pending", "changes_requested"].includes(request.status) && <Button size="sm" variant="ghost" onClick={() => cancel(request)}><XCircle className="mr-1 h-4 w-4" />Cancel</Button>}
               </div>
             </div>

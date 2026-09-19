@@ -1,49 +1,59 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Search, UserRoundSearch } from "lucide-react";
+import { GraduationCap, Loader2, Percent, Search, Sparkles, UserRoundSearch } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { applicationsApi, recruitersApi } from "@/lib/api";
-import type { ApplicationStatus, CandidateApplication, Job } from "@/lib/types";
+import type { ApplicationStatus, CandidateApplication } from "@/lib/types";
 
 const PIPELINE: ApplicationStatus[] = [
   "submitted", "reviewed", "shortlisted", "interviewed", "offered", "accepted", "rejected",
 ];
+const DRIVE_PIPELINE = ["registered", "eligible", "shortlisted", "interviewed", "selected", "rejected"] as const;
+type CandidateStatus = ApplicationStatus | (typeof DRIVE_PIPELINE)[number];
+type Candidate = Omit<CandidateApplication, "status"> & { status: CandidateStatus; source_type?: "drive" };
+type CandidateSource = { id: string; title: string; company: string; status?: string; kind: "job" | "drive" };
 
 export default function RecruiterCandidatesPage() {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [jobId, setJobId] = useState("");
-  const [candidates, setCandidates] = useState<CandidateApplication[]>([]);
+  const [sources, setSources] = useState<CandidateSource[]>([]);
+  const [sourceKey, setSourceKey] = useState("");
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [query, setQuery] = useState("");
   const [minCgpa, setMinCgpa] = useState("");
   const [minScore, setMinScore] = useState("");
-  const [aiResults, setAiResults] = useState<CandidateApplication[] | null>(null);
+  const [aiResults, setAiResults] = useState<Candidate[] | null>(null);
   const [aiSearching, setAiSearching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
-    recruitersApi.getJobs()
+    recruitersApi.getCandidateSources()
       .then(({ data }) => {
-        const items = data as Job[];
-        setJobs(items);
+        const items: CandidateSource[] = [
+          ...(data.jobs || []).map((job: Omit<CandidateSource, "kind">) => ({ ...job, kind: "job" as const })),
+          ...(data.drives || []).map((drive: Omit<CandidateSource, "kind">) => ({ ...drive, kind: "drive" as const })),
+        ];
+        setSources(items);
         const requested = new URLSearchParams(window.location.search).get("job");
-        setJobId(requested && items.some((job) => job.id === requested) ? requested : items[0]?.id || "");
+        const preferred = requested ? items.find((item) => item.kind === "job" && item.id === requested) : undefined;
+        setSourceKey(preferred ? `job:${preferred.id}` : items[0] ? `${items[0].kind}:${items[0].id}` : "");
       })
-      .catch(() => toast.error("Could not load recruiter jobs"))
+      .catch(() => toast.error("Could not load hiring sources"))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    if (!jobId) return;
-    recruitersApi.getCandidates(jobId)
-      .then(({ data }) => setCandidates(data))
-      .catch(() => toast.error("Could not load candidates for this job"))
+    if (!sourceKey) return;
+    const [kind, id] = sourceKey.split(":") as ["job" | "drive", string];
+    recruitersApi.getCandidates(kind === "job" ? { job_id: id } : { drive_id: id })
+      .then(({ data }) => setCandidates(data as Candidate[]))
+      .catch(() => toast.error("Could not load applicants for this hiring source"))
       .finally(() => setLoading(false));
-  }, [jobId]);
+  }, [sourceKey]);
+
 
   const runAiSearch = async () => {
     if (!query.trim()) {
@@ -53,11 +63,24 @@ export default function RecruiterCandidatesPage() {
     setAiSearching(true);
     try {
       const { data } = await recruitersApi.aiSearch(query);
-      // Map the returned student_profiles into the same CandidateApplication shape for display
-      const matchingIds = new Set((data.students || []).map((student: { id: string }) => student.id));
-      const mapped = candidates.filter((candidate) => candidate.student_profiles?.id && matchingIds.has(candidate.student_profiles.id));
+      const studentsList = data.students || [];
+      const mapped: Candidate[] = studentsList.map((student: any) => {
+        const existing = candidates.find((c) => c.student_profiles?.id === student.id);
+        if (existing) return existing;
+        return {
+          id: student.id,
+          status: "shortlisted" as const,
+          source_type: "drive" as const,
+          match_score: student.cgpa ? Math.min(100, Math.round(student.cgpa * 10)) : 80,
+          match_reason: "Matches search criteria",
+          student_profiles: student,
+          skill_matches: student.skills || [],
+          missing_skills: [],
+          created_at: student.created_at || new Date().toISOString(),
+        } as Candidate;
+      });
       setAiResults(mapped);
-      toast.success(`AI found ${mapped.length} matching candidates`);
+      toast.success(`AI found ${mapped.length} matching candidate${mapped.length !== 1 ? "s" : ""}`);
     } catch {
       toast.error("AI search failed — ensure your recruiter profile is verified");
     } finally {
@@ -66,13 +89,17 @@ export default function RecruiterCandidatesPage() {
   };
 
   const updateCandidate = async (
-    candidate: CandidateApplication,
-    status: ApplicationStatus,
+    candidate: Candidate,
+    status: CandidateStatus,
     extra: Record<string, unknown> = {},
   ) => {
     setUpdating(candidate.id);
     try {
-      await applicationsApi.updateStatus(candidate.id, { status, ...extra });
+      if (candidate.source_type === "drive") {
+        await recruitersApi.updateDriveApplication(candidate.id, status);
+      } else {
+        await applicationsApi.updateStatus(candidate.id, { status: status as ApplicationStatus, ...extra });
+      }
       setCandidates((items) => items.map((item) => item.id === candidate.id ? { ...item, status, ...extra } : item));
       toast.success(`Candidate moved to ${status}`);
     } catch {
@@ -99,29 +126,105 @@ export default function RecruiterCandidatesPage() {
       <div className="mb-6">
         <div className="text-xs uppercase tracking-widest text-muted-foreground">Recruiter · Candidates</div>
         <h1 className="mt-1 text-2xl font-semibold">Candidate pipeline</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Applicants are isolated to jobs owned by your recruiter account.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Review direct-job applicants and applications to your approved campus drives.</p>
       </div>
 
-      <div className="mb-5 grid gap-3 rounded-xl border border-border bg-surface p-4 lg:grid-cols-[240px_1fr_120px_120px_auto]">
-        <select value={jobId} onChange={(event) => { setJobId(event.target.value); setAiResults(null); setQuery(""); }} className="h-10 rounded-md border border-border bg-background px-3 text-sm">
-          {jobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
-        </select>
-        <div className="relative">
-          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => { setQuery(event.target.value); if (!event.target.value) setAiResults(null); }}
-            onKeyDown={(e) => { if (e.key === "Enter") runAiSearch(); }}
-            placeholder="AI search: e.g. React devs with CGPA > 8.0"
-            className="pl-9"
-          />
+      <div className="mb-6 rounded-xl border border-border bg-surface p-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[240px_1fr_120px_130px_auto] items-end">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Hiring Source</label>
+            <select
+              value={sourceKey}
+              onChange={(event) => { setSourceKey(event.target.value); setAiResults(null); setQuery(""); }}
+              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              {sources.map((source) => (
+                <option key={`${source.kind}:${source.id}`} value={`${source.kind}:${source.id}`}>
+                  {source.kind === "drive" ? "Campus drive · " : "Direct job · "}{source.title} — {source.company}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+              <Sparkles className="h-3 w-3 text-primary" />
+              AI Natural Search
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => { setQuery(event.target.value); if (!event.target.value) setAiResults(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") runAiSearch(); }}
+                placeholder="e.g. React devs with CGPA > 8.0"
+                className="pl-9"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+              <GraduationCap className="h-3 w-3 text-muted-foreground" />
+              Min CGPA
+            </label>
+            <Input
+              type="number"
+              min="0"
+              max="10"
+              step="0.1"
+              value={minCgpa}
+              onChange={(event) => setMinCgpa(event.target.value)}
+              placeholder="e.g. 7.5"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label
+              className="text-xs font-medium text-muted-foreground flex items-center gap-1"
+              title="Filters candidates by AI Resume-to-Job compatibility match score (0-100%)"
+            >
+              <Percent className="h-3 w-3 text-muted-foreground" />
+              Min Match %
+            </label>
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              value={minScore}
+              onChange={(event) => setMinScore(event.target.value)}
+              placeholder="e.g. 70"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-transparent select-none hidden lg:block">Action</label>
+            <Button
+              onClick={runAiSearch}
+              disabled={aiSearching || !query.trim()}
+              size="default"
+              className="gap-2 w-full lg:w-auto h-10"
+            >
+              {aiSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundSearch className="h-4 w-4" />}
+              Smart search
+            </Button>
+          </div>
         </div>
-        <Input type="number" min="0" max="10" step="0.1" value={minCgpa} onChange={(event) => setMinCgpa(event.target.value)} placeholder="Min CGPA" />
-        <Input type="number" min="0" max="100" value={minScore} onChange={(event) => setMinScore(event.target.value)} placeholder="Min match %" />
-        <Button onClick={runAiSearch} disabled={aiSearching || !query.trim()} size="default" className="gap-2">
-          {aiSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundSearch className="h-4 w-4" />}
-          Smart search
-        </Button>
+
+        {(minCgpa || minScore) && (
+          <div className="mt-3 pt-3 border-t border-border flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Active score filters:</span>
+            {minCgpa && <span className="rounded bg-elevated px-2 py-0.5 text-foreground font-medium">CGPA ≥ {minCgpa}</span>}
+            {minScore && <span className="rounded bg-elevated px-2 py-0.5 text-foreground font-medium">AI Match ≥ {minScore}%</span>}
+            <button
+              type="button"
+              onClick={() => { setMinCgpa(""); setMinScore(""); }}
+              className="text-primary hover:underline ml-1"
+            >
+              Reset filters
+            </button>
+          </div>
+        )}
       </div>
 
       {aiResults !== null && (
@@ -136,8 +239,8 @@ export default function RecruiterCandidatesPage() {
 
       {loading ? (
         <div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-      ) : jobs.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-12 text-center text-sm text-muted-foreground">Post a job before reviewing candidates.</div>
+      ) : sources.length === 0 ? (
+        <div className="rounded-xl border border-dashed p-12 text-center text-sm text-muted-foreground">Post a direct job or submit a campus-drive request before reviewing applicants.</div>
       ) : visible.length === 0 ? (
         <div className="rounded-xl border border-dashed p-12 text-center">
           <UserRoundSearch className="mx-auto h-8 w-8 text-muted-foreground" />
@@ -173,20 +276,22 @@ export default function RecruiterCandidatesPage() {
                     <select
                       value={candidate.status}
                       disabled={updating === candidate.id}
-                      onChange={(event) => updateCandidate(candidate, event.target.value as ApplicationStatus)}
+                      onChange={(event) => updateCandidate(candidate, event.target.value as CandidateStatus)}
                       className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm capitalize"
                     >
-                      {PIPELINE.map((status) => <option key={status} value={status}>{status}</option>)}
+                      {(candidate.source_type === "drive" ? DRIVE_PIPELINE : PIPELINE).map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
-                    <label className="block pt-1 text-xs text-muted-foreground">Interview / next-step date</label>
-                    <Input
-                      type="date"
-                      value={candidate.next_step_date || ""}
-                      onChange={(event) => updateCandidate(candidate, "interviewed", {
-                        next_step: "Recruiter interview",
-                        next_step_date: event.target.value,
-                      })}
-                    />
+                    {candidate.source_type !== "drive" && <>
+                      <label className="block pt-1 text-xs text-muted-foreground">Interview / next-step date</label>
+                      <Input
+                        type="date"
+                        value={candidate.next_step_date || ""}
+                        onChange={(event) => updateCandidate(candidate, "interviewed", {
+                          next_step: "Recruiter interview",
+                          next_step_date: event.target.value,
+                        })}
+                      />
+                    </>}
                     <Button className="w-full" size="sm" disabled={updating === candidate.id} onClick={() => updateCandidate(candidate, "shortlisted")}>Shortlist</Button>
                   </div>
                 </div>

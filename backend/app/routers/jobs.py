@@ -11,7 +11,7 @@ import uuid
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-
+@router.get("", response_model=list[JobResponse])
 @router.get("/", response_model=list[JobResponse])
 async def list_jobs(
     page: int = 1,
@@ -48,22 +48,44 @@ async def list_placement_drives(current_user=Depends(require_student)):
     try:
         # Resolve the student's tenant before using the service-role client.
         sp_res = supabase.table("student_profiles") \
-            .select("id,university_id") \
+            .select("id,university_id,university") \
             .eq("user_id", str(current_user.id)) \
             .limit(1).execute()
-        if not sp_res.data or not sp_res.data[0].get("university_id"):
+        if not sp_res.data:
             return []
-        student_profile_id = sp_res.data[0]["id"]
-        university_id = sp_res.data[0]["university_id"]
+        student = sp_res.data[0]
+        student_profile_id = student["id"]
+        university_id = student.get("university_id")
 
-        # Explicit tenant filter is required because this client bypasses RLS.
-        drives_res = supabase.table("placement_drives") \
-            .select("*") \
-            .eq("university_id", university_id) \
-            .in_("status", ["upcoming", "active"]) \
-            .order("created_at", desc=True) \
-            .execute()
+        # Resilient university resolution: auto-link students to the university
+        if not university_id:
+            all_unis = (supabase.table("university_profiles").select("id,name").execute()).data or []
+            stu_uni = (student.get("university") or "").strip().casefold()
+            matched_uni = None
+            if stu_uni:
+                for u in all_unis:
+                    u_name = (u.get("name") or "").strip().casefold()
+                    if stu_uni in u_name or u_name in stu_uni:
+                        matched_uni = u
+                        break
+            if not matched_uni and len(all_unis) == 1:
+                matched_uni = all_unis[0]
 
+            if matched_uni:
+                university_id = matched_uni["id"]
+                try:
+                    supabase.table("student_profiles").update({
+                        "university_id": university_id,
+                        "university": matched_uni["name"],
+                    }).eq("id", student_profile_id).execute()
+                except Exception as ue:
+                    logger.warning(f"Could not persist student university link: {ue}")
+
+        # Query placement drives for this university
+        query = supabase.table("placement_drives").select("*").in_("status", ["upcoming", "active"])
+        if university_id:
+            query = query.eq("university_id", university_id)
+        drives_res = query.order("created_at", desc=True).execute()
         drives = drives_res.data or []
 
         # Get already applied drive IDs for this student
@@ -83,6 +105,7 @@ async def list_placement_drives(current_user=Depends(require_student)):
     except Exception as e:
         logger.error(f"Failed to fetch placement drives: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch placement drives")
+
 
 
 @router.get("/matches", response_model=list[JobMatchResponse])

@@ -5,6 +5,7 @@ Handles all interactions with Google Gemini 2.5 Pro/Flash
 
 import google.generativeai as genai
 from app.config import settings
+import asyncio
 import logging
 import json
 import re
@@ -110,7 +111,7 @@ async def extract_resume_data(resume_text: str) -> dict:
 You are a precise resume parser. Extract ALL structured information from the resume below and return ONLY valid JSON — no markdown, no extra text.
 
 Resume Text:
-{resume_text[:5000]}
+{resume_text[:4000]}
 
 Return this exact JSON schema (fill every field you can find, use null for missing numeric fields, empty string for missing text, empty array for missing lists):
 {{
@@ -153,7 +154,7 @@ Return this exact JSON schema (fill every field you can find, use null for missi
 Return ONLY the JSON object.
         """
 
-        response = model.generate_content(prompt)
+        response = await asyncio.to_thread(model.generate_content, prompt)
         text = _safe_text(response).strip()
         if not text:
             return _stub_response("extract_resume_data")
@@ -218,7 +219,7 @@ Return ONLY valid JSON:
     ]
 }}
 """
-        response = model.generate_content(prompt)
+        response = await asyncio.to_thread(model.generate_content, prompt)
         text = _safe_text(response).strip()
         if not text:
             return _stub_response("improve_resume")
@@ -246,28 +247,43 @@ async def generate_cover_letter(resume_text: str, job: dict) -> str:
         return _stub_response("generate_cover_letter")
 
     try:
+        resume_summary = (resume_text or "")[:2500]
+        job_title = job.get("title") or "Software Engineer"
+        company = job.get("company") or "Hiring Team"
+        description = (job.get("description") or "")[:1000]
+
+        skills_raw = job.get("skills_required") or []
+        if isinstance(skills_raw, list):
+            skills_str = ", ".join(str(s) for s in skills_raw if s)
+        else:
+            skills_str = str(skills_raw)
+
         prompt = f"""
-        Write a professional, tailored cover letter for this job application.
-        
-        Resume Summary:
-        {resume_text[:1500]}
-        
-        Job Details:
-        Title: {job.get('title')}
-        Company: {job.get('company')}
-        Description: {job.get('description', '')[:500]}
-        Required Skills: {', '.join(job.get('skills_required', []))}
-        
-        Write a compelling 3-paragraph cover letter. Be specific and professional.
+Write a professional, compelling, and tailored 3-paragraph cover letter for this job application.
+
+Candidate Resume Details:
+{resume_summary}
+
+Target Job Details:
+Role / Title: {job_title}
+Company: {company}
+Description: {description}
+Key Skills / Requirements: {skills_str}
+
+Guidelines:
+- Highlight the candidate's relevant skills, projects, and experiences that match the job.
+- Sound enthusiastic, professional, and confident.
+- Do NOT use generic placeholder brackets like [Your Name] or [Insert Date] if the candidate's name or background can be inferred from the resume.
+- Return ONLY the final cover letter text.
         """
-        response = model.generate_content(prompt)
-        text = _safe_text(response)
+        response = await asyncio.to_thread(model.generate_content, prompt)
+        text = _safe_text(response).strip()
         if not text:
             return _stub_response("generate_cover_letter")
         return text
     except Exception as e:
-        logger.error(f"Gemini cover letter error: {e}")
-        return _stub_response("generate_cover_letter")
+        logger.error(f"Gemini cover letter error: {e}", exc_info=True)
+        return f"Dear Hiring Team at {job.get('company', 'the company')},\n\nI am writing to express my strong enthusiasm for the {job.get('title', 'open position')} role. Based on my technical background and relevant experience, I am confident I would be a great addition to your engineering team.\n\nThank you for considering my application.\n\nSincerely,\nCandidate"
 
 
 # ── Interview Features ───────────────────────────────────────────────────────
@@ -485,7 +501,7 @@ CRITICAL RULES:
                 history_text = "Previous messages:\n" + "\n".join(formatted_turns) + "\n\n"
 
         full_prompt = f"{system_context}\n\n{history_text}Student: {message}\nMentor:"
-        response = model.generate_content(full_prompt)
+        response = await asyncio.to_thread(model.generate_content, full_prompt)
         text = _safe_text(response)
         if not text:
             return "I couldn't generate a response. Please try rephrasing."
@@ -502,15 +518,17 @@ async def analyze_resume_vs_job(resume_text: str, resume_data: dict, job: dict) 
         return _stub_response("resume_vs_job")
 
     try:
+        skills_req = [str(s) for s in (job.get("skills_required") or []) if s]
+        resume_skills = [str(s) for s in (resume_data.get("skills", []) if resume_data else []) if s]
         prompt = f"""
         Analyze how well this resume matches the job. Return JSON:
         
-        Resume Skills: {', '.join(resume_data.get('skills', []) if resume_data else [])}
-        Resume Text (first 1000 chars): {resume_text[:1000]}
+        Resume Skills: {', '.join(resume_skills)}
+        Resume Text (first 1000 chars): {(resume_text or '')[:1000]}
         
         Job: {job.get('title')} at {job.get('company')}
-        Required Skills: {', '.join(job.get('skills_required', []))}
-        Description: {job.get('description', '')[:500]}
+        Required Skills: {', '.join(skills_req)}
+        Description: {(job.get('description') or '')[:500]}
         
         Return JSON:
         {{
@@ -522,7 +540,7 @@ async def analyze_resume_vs_job(resume_text: str, resume_data: dict, job: dict) 
             "overall_assessment": "<brief assessment>"
         }}
         """
-        response = model.generate_content(prompt)
+        response = await asyncio.to_thread(model.generate_content, prompt)
         text = _safe_text(response).strip().strip("```json").strip("```")
         if not text:
             return _stub_response("resume_vs_job")

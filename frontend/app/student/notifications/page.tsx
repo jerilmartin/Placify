@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, AlertTriangle, Info, Filter, Loader2 } from "lucide-react";
+import Link from "next/link";
+import {
+  CheckCircle2, AlertTriangle, Info, Filter, Loader2,
+  Sparkles, Calendar, Briefcase, Trophy, ArrowRight
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { notificationsApi } from "@/lib/api";
@@ -16,6 +20,7 @@ interface Notification {
   type?: string;
   read: boolean;
   created_at: string;
+  data?: Record<string, any>;
 }
 
 export default function NotificationsPage() {
@@ -42,6 +47,7 @@ export default function NotificationsPage() {
       .then((res) => setNotifications(res.data || []))
       .catch(() => toast.error("Could not load notifications"))
       .finally(() => setLoading(false));
+
     if (!user?.id) return;
     const channel = supabase.channel(`notifications:${user.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, (payload) => {
@@ -49,6 +55,7 @@ export default function NotificationsPage() {
         toast.info((payload.new as Notification).title);
       })
       .subscribe();
+
     return () => { supabase.removeChannel(channel); };
   }, [user?.id]);
 
@@ -119,17 +126,32 @@ export default function NotificationsPage() {
         <div className="overflow-hidden rounded-xl border border-border bg-surface">
           <ul className="divide-y divide-border">
             {notifications.map((n, i) => {
-              const kind = n.type === "success" ? "success" : n.type === "warning" ? "warning" : "info";
-              const Icon = kind === "success" ? CheckCircle2 : kind === "warning" ? AlertTriangle : Info;
-              const tint =
-                kind === "success"
-                  ? "text-success bg-success/12"
-                  : kind === "warning"
-                  ? "text-warning bg-warning/12"
-                  : "text-info bg-info/12";
+              let Icon = Info;
+              let tint = "text-info bg-info/12";
+
+              if (n.type === "offer_received" || n.type === "success") {
+                Icon = Trophy;
+                tint = "text-amber-400 bg-amber-400/15";
+              } else if (n.type === "interview_scheduled") {
+                Icon = Calendar;
+                tint = "text-purple-400 bg-purple-400/15";
+              } else if (n.type === "new_job" || n.type === "drive_registration") {
+                Icon = Briefcase;
+                tint = "text-primary bg-primary/15";
+              } else if (n.title.toLowerCase().includes("shortlisted")) {
+                Icon = Sparkles;
+                tint = "text-emerald-400 bg-emerald-400/15";
+              } else if (n.type === "warning") {
+                Icon = AlertTriangle;
+                tint = "text-warning bg-warning/12";
+              }
+
               const when = new Date(n.created_at).toLocaleDateString("en-IN", {
                 day: "numeric", month: "short",
               });
+
+              const isDriveOrApp = n.type === "application_update" || n.type === "interview_scheduled" || n.type === "offer_received" || n.title.toLowerCase().includes("shortlist");
+
               return (
                 <li
                   key={n.id}
@@ -139,15 +161,26 @@ export default function NotificationsPage() {
                     !n.read && i === 0 && "bg-primary/[0.04]"
                   )}
                 >
-                  <div className={cn("mt-0.5 flex h-8 w-8 items-center justify-center rounded-md", tint)}>
+                  <div className={cn("mt-0.5 flex h-8 w-8 items-center justify-center rounded-md shrink-0", tint)}>
                     <Icon className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[13.5px]">{n.title}</div>
+                    <div className="text-[13.5px] font-medium">{n.title}</div>
                     {n.message && (
                       <div className="mt-0.5 text-[12px] text-muted-foreground">{n.message}</div>
                     )}
-                    <div className="mt-0.5 text-[11px] text-muted-foreground">{when}</div>
+                    <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+                      <span>{when}</span>
+                      {isDriveOrApp && (
+                        <Link
+                          href="/student/applications"
+                          className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          View application <ArrowRight className="h-3 w-3" />
+                        </Link>
+                      )}
+                    </div>
                   </div>
                   {!n.read && <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
                 </li>

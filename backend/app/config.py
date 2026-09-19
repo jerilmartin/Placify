@@ -2,6 +2,7 @@
 Application configuration using Pydantic Settings
 """
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import os
@@ -54,6 +55,14 @@ class Settings(BaseSettings):
 
     # ── Server ────────────────────────────────────────────
     port: int = 8000
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_debug_flag(cls, value):
+        """Accept standard log-level environment values without blocking startup."""
+        if isinstance(value, str) and value.strip().upper() in {"DEBUG", "INFO", "WARN", "WARNING", "ERROR"}:
+            return value.strip().upper() == "DEBUG"
+        return value
 
     # ── Rate Limiting ─────────────────────────────────────
     rate_limit_requests: int = 100
