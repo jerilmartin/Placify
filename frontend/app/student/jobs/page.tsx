@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import Link from "next/link";
 import { aiApi, resumesApi, jobsApi } from "@/lib/api";
 
 interface Drive {
@@ -49,6 +50,7 @@ interface StudentProfile {
   cgpa: number | null;
   active_backlogs: number | null;
   course: string | null;
+  university: string | null;
 }
 
 interface EligibilityResult {
@@ -140,7 +142,7 @@ export default function JobsPage() {
       // Load student profile (own row, always visible)
       const { data: sp } = await supabase
         .from("student_profiles")
-        .select("id, cgpa, active_backlogs, course")
+        .select("id, cgpa, active_backlogs, course, university")
         .eq("user_id", user.id)
         .maybeSingle();
       setProfile(sp);
@@ -289,7 +291,10 @@ export default function JobsPage() {
       {filtered.length === 0 ? (
         <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border">
           <Building2 className="h-10 w-10 text-muted-foreground/40" />
-          <p className="text-[14px] text-muted-foreground">No placement drives found</p>
+          <p className="text-[14px] text-muted-foreground">
+            {profile?.university ? "No active placement drives are available for your university." : "Add your university to see campus placement drives."}
+          </p>
+          {!search && !profile?.university && <Button size="sm" variant="outline" asChild><Link href="/student/profile">Complete profile</Link></Button>}
           {search && <Button size="sm" variant="outline" onClick={() => setSearch("")}>Clear search</Button>}
         </div>
       ) : (

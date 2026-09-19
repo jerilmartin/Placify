@@ -14,6 +14,61 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+BRANCH_ALIASES: dict[str, list[str]] = {
+    "cs": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software", "software engineering"],
+    "cse": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software", "software engineering"],
+    "computer science": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software", "software engineering"],
+    "computer science & engineering": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software", "software engineering"],
+    "it": ["it", "information technology", "info tech"],
+    "information technology": ["it", "information technology", "info tech"],
+    "ece": ["ece", "electronics", "ec", "telecommunication", "communication"],
+    "electronics": ["ece", "electronics", "ec", "telecommunication", "communication"],
+    "electronics & communication engineering": ["ece", "electronics", "ec", "telecommunication", "communication"],
+    "eee": ["eee", "electrical", "ee"],
+    "electrical": ["eee", "electrical", "ee"],
+    "electrical & electronics engineering": ["eee", "electrical", "ee"],
+    "mech": ["mech", "mechanical", "me"],
+    "mechanical": ["mech", "mechanical", "me"],
+    "mechanical engineering": ["mech", "mechanical", "me"],
+    "civil": ["civil", "ce"],
+    "civil engineering": ["civil", "ce"],
+    "chemical": ["chemical", "chem", "ch"],
+    "chemical engineering": ["chemical", "chem", "ch"],
+    "ai": ["ai", "ml", "aiml", "artificial intelligence", "machine learning", "data science"],
+    "ml": ["ai", "ml", "aiml", "artificial intelligence", "machine learning", "data science"],
+    "aiml": ["ai", "ml", "aiml", "artificial intelligence", "machine learning", "data science"],
+    "artificial intelligence & machine learning": ["ai", "ml", "aiml", "artificial intelligence", "machine learning", "data science"],
+    "data science": ["ai", "ml", "aiml", "data science", "ds", "analytics"],
+    "data science & analytics": ["ai", "ml", "aiml", "data science", "ds", "analytics"],
+    "cybersecurity": ["cyber", "security", "infosec"],
+    "cyber security & information assurance": ["cyber", "security", "infosec"],
+    "mca": ["mca", "master of computer applications"],
+    "bca": ["bca", "bachelor of computer applications"],
+    "all branches": ["all", "any", "open", "b.tech", "b.e", "mca", "bca", "bsc", "msc", "mba"],
+    "all branches (any degree)": ["all", "any", "open", "b.tech", "b.e", "mca", "bca", "bsc", "msc", "mba"],
+    "all engineering branches": ["cs", "cse", "it", "ece", "eee", "mech", "civil", "chemical", "engineering", "b.tech", "b.e"],
+}
+
+
+def _matches_branch(student_course: str, req_branch: str) -> bool:
+    course_norm = (student_course or "").lower().strip()
+    branch_norm = (req_branch or "").lower().strip()
+    if not course_norm or not branch_norm:
+        return False
+    if "all branches" in branch_norm or branch_norm == "all":
+        return True
+    if branch_norm in course_norm or course_norm in branch_norm:
+        return True
+    aliases = BRANCH_ALIASES.get(branch_norm, [])
+    if any(alias in course_norm for alias in aliases):
+        return True
+    for key, alias_list in BRANCH_ALIASES.items():
+        if key in course_norm or any(a in course_norm for a in alias_list):
+            if key in branch_norm or any(a in branch_norm for a in alias_list):
+                return True
+    return False
+
+
 @router.get("/", response_model=list[ApplicationResponse])
 async def list_my_applications(current_user=Depends(require_student)):
     """List all direct-job applications for the current student."""
@@ -83,12 +138,12 @@ async def apply_to_job(data: ApplicationCreate, current_user=Depends(require_stu
                 status_code=400,
                 detail="Your CGPA does not meet this job's eligibility requirement",
             )
-        eligible_branches = [branch.lower() for branch in (job.get("eligible_branches") or [])]
-        course = (profile.get("course") or "").lower()
-        if eligible_branches and not any(branch in course for branch in eligible_branches):
+        eligible_branches = job.get("eligible_branches") or []
+        course = profile.get("course") or ""
+        if eligible_branches and not any(_matches_branch(course, b) for b in eligible_branches):
             raise HTTPException(
                 status_code=400,
-                detail="Your course does not meet this job's branch requirement",
+                detail=f"Your course ({course}) does not meet this job's branch requirement (Allowed: {', '.join(eligible_branches)})",
             )
 
         existing = (
@@ -199,6 +254,60 @@ async def update_application_status(
         )
         if not result.data:
             raise HTTPException(status_code=404, detail="Application not found")
+
+        # Dispatch notification to the candidate
+        try:
+            student_id = application.get("student_id")
+            job_id = application.get("job_id")
+            if not student_id:
+                app_detail = supabase.table("applications").select("student_id,job_id").eq("id", str(application_id)).limit(1).execute()
+                if app_detail.data:
+                    student_id = app_detail.data[0].get("student_id")
+                    job_id = app_detail.data[0].get("job_id")
+
+            student_res = supabase.table("student_profiles").select("user_id").eq("id", student_id).limit(1).execute()
+            job_res = supabase.table("jobs").select("title,company").eq("id", str(job_id)).limit(1).execute()
+
+            if student_res.data and student_res.data[0].get("user_id"):
+                student_user_id = student_res.data[0]["user_id"]
+                j_info = job_res.data[0] if job_res.data else {}
+                title = j_info.get("title", "Role")
+                company = j_info.get("company", "Company")
+
+                status_val = update_data.get("status", "updated")
+                if status_val == "shortlisted":
+                    n_title = f"Shortlisted for {title}! 🎉"
+                    n_msg = f"Congratulations! You have been shortlisted by {company} for {title}."
+                    n_type = "application_update"
+                elif status_val == "interviewed":
+                    n_title = f"Interview Scheduled: {company} 📅"
+                    n_msg = f"You have been invited for an interview with {company} for {title}."
+                    n_type = "interview_scheduled"
+                elif status_val in ("offered", "accepted"):
+                    n_title = f"Offer Received from {company}! 🏆"
+                    n_msg = f"Congratulations! You received an offer for {title} at {company}."
+                    n_type = "offer_received"
+                elif status_val == "rejected":
+                    n_title = f"Application Status: {company}"
+                    n_msg = f"Your application for {title} was not selected at this time."
+                    n_type = "application_update"
+                else:
+                    n_title = f"Application Status: {status_val.capitalize()}"
+                    n_msg = f"Your application for {title} at {company} is now {status_val}."
+                    n_type = "application_update"
+
+                from app.routers.notifications import send_notification
+                send_notification(
+                    supabase,
+                    user_id=student_user_id,
+                    notif_type=n_type,
+                    title=n_title,
+                    message=n_msg,
+                    data={"application_id": str(application_id), "job_id": str(job_id), "status": status_val},
+                )
+        except Exception as notify_err:
+            logger.warning(f"Failed to dispatch application status notification: {notify_err}")
+
         return result.data[0]
     except HTTPException:
         raise

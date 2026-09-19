@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { notificationsApi } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
 
 const crumbLabels: Record<string, string> = {
   app: "Placify",
@@ -30,8 +33,43 @@ export function Topbar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const segments = pathname.split("/").filter(Boolean);
   const [isDark, setIsDark] = useState(true);
   const [showLogout, setShowLogout] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const { user, logout } = useAuth();
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    notificationsApi.unreadCount()
+      .then((res) => setUnreadCount(res.data?.unread_count || 0))
+      .catch(() => {});
+
+    const channel = supabase.channel(`topbar-notifications:${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const notif = payload.new as any;
+            setUnreadCount((c) => c + 1);
+            toast.info(notif.title, { description: notif.message });
+          } else if (payload.eventType === "UPDATE") {
+            notificationsApi.unreadCount()
+              .then((res) => setUnreadCount(res.data?.unread_count || 0))
+              .catch(() => {});
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -104,9 +142,13 @@ export function Topbar({ onOpenCommand }: { onOpenCommand: () => void }) {
 
         {/* Notifications */}
         <Button variant="ghost" size="icon" aria-label="Notifications" asChild>
-          <Link href={`/${segments[0]}/notifications`} className="relative">
+          <Link href={`/${segments[0] || "student"}/notifications`} className="relative">
             <Bell className="h-4 w-4" />
-            <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground shadow-sm">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
           </Link>
         </Button>
 

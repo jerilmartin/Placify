@@ -56,3 +56,5 @@ archive.zip
 .DS_Store
 Thumbs.db
 desktop.ini
+.venv-py39/
+

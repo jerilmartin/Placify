@@ -234,7 +234,7 @@ def _insert_profile(
             payload["university"] = university.strip()
             if len(matches) == 1:
                 payload["university_id"] = matches[0]["id"]
-    elif role == "university":
+    elif role in ("university", "placement_officer"):
         table_name = "university_profiles"
         payload = {
             "user_id": user_id,

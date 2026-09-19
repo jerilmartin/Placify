@@ -99,8 +99,10 @@ async def get_eligible_students(drive_id: uuid.UUID, current_user=Depends(requir
         eligible_branches = eligibility.get("eligible_branches", [])
         grad_year = eligibility.get("graduation_year")
 
+        # university_id is authoritative. Keep the exact-name fallback only
+        # for older profiles awaiting the one-time tenant migration.
         query = supabase.table("student_profiles").select("*") \
-            .ilike("university", university.data[0]["name"])
+            .eq("university_id", university.data[0]["id"])
         if min_cgpa:
             query = query.gte("cgpa", min_cgpa)
         if grad_year:
@@ -111,6 +113,10 @@ async def get_eligible_students(drive_id: uuid.UUID, current_user=Depends(requir
 
         result = query.execute()
         students = result.data or []
+        if not students:
+            legacy = supabase.table("student_profiles").select("*") \
+                .ilike("university", university.data[0]["name"]).execute()
+            students = legacy.data or []
 
         # eligible_branches: do intelligent alias-aware match in Python
         if eligible_branches:

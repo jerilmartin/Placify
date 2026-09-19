@@ -15,7 +15,7 @@ export default function RecruiterInterviewsPage() {
     recruitersApi.getJobs()
       .then(async ({ data }) => {
         const jobs = data as Job[];
-        const responses = await Promise.all(jobs.map((job) => recruitersApi.getCandidates(job.id)));
+        const responses = await Promise.all(jobs.map((job) => recruitersApi.getCandidates({ job_id: job.id })));
         const scheduled = responses.flatMap((response) => response.data as CandidateApplication[])
           .filter((candidate) => candidate.next_step_date)
           .sort((a, b) => String(a.next_step_date).localeCompare(String(b.next_step_date)));

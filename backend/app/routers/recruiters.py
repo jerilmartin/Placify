@@ -6,6 +6,8 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import Literal, Optional
 
 from app.database import get_supabase
 from app.middleware.auth import require_recruiter
@@ -19,6 +21,10 @@ from app.services.gemini_service import recruiter_ai_search
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class DriveApplicationUpdate(BaseModel):
+    status: Literal["registered", "eligible", "shortlisted", "interviewed", "selected", "rejected"]
 
 
 def _profile_for_user(supabase, user_id: str) -> dict:
@@ -307,8 +313,34 @@ async def recruiter_overview(current_user=Depends(require_recruiter)):
             .execute()
         ).data or []
 
-    status_counts = Counter(application.get("status", "submitted") for application in applications)
-    recent = applications[:5]
+    approved_requests = (
+        supabase.table("drive_requests")
+        .select("placement_drive_id")
+        .eq("recruiter_id", profile["id"])
+        .eq("status", "approved")
+        .not_.is_("placement_drive_id", "null")
+        .execute()
+    ).data or []
+    drive_ids = [req["placement_drive_id"] for req in approved_requests if req.get("placement_drive_id")]
+
+    drive_applications = []
+    if drive_ids:
+        drive_applications = (
+            supabase.table("drive_applications")
+            .select("*, student_profiles(full_name,email,university,course,cgpa,skills)")
+            .in_("drive_id", drive_ids)
+            .order("registered_at", desc=True)
+            .execute()
+        ).data or []
+
+    all_applications = applications + drive_applications
+    all_applications.sort(
+        key=lambda x: x.get("created_at") or x.get("registered_at") or "",
+        reverse=True,
+    )
+
+    status_counts = Counter(application.get("status", "submitted") for application in all_applications)
+    recent = all_applications[:5]
     return {
         "profile": profile,
         "jobs": jobs,
@@ -316,7 +348,7 @@ async def recruiter_overview(current_user=Depends(require_recruiter)):
         "metrics": {
             "total_jobs": len(jobs),
             "open_jobs": sum(job.get("status") == "active" for job in jobs),
-            "applications": len(applications),
+            "applications": len(all_applications),
             "reviewed": status_counts["reviewed"],
             "shortlisted": status_counts["shortlisted"],
             "interviewed": status_counts["interviewed"],
@@ -325,7 +357,7 @@ async def recruiter_overview(current_user=Depends(require_recruiter)):
             "rejected": status_counts["rejected"],
         },
         "funnel": [
-            {"stage": "Applied", "count": len(applications)},
+            {"stage": "Applied", "count": len(all_applications)},
             {
                 "stage": "Reviewed",
                 "count": sum(
@@ -353,12 +385,66 @@ async def recruiter_overview(current_user=Depends(require_recruiter)):
 
 @router.get("/candidates")
 async def get_ai_sorted_candidates(
-    job_id: uuid.UUID,
+    job_id: Optional[uuid.UUID] = None,
+    drive_id: Optional[uuid.UUID] = None,
     current_user=Depends(require_recruiter),
 ):
-    """Return applicants for one owned job, enriched with computed match signals."""
+    """Return applicants for one owned direct job or approved campus drive."""
     supabase = get_supabase()
     user_id = str(current_user.id)
+
+    if bool(job_id) == bool(drive_id):
+        raise HTTPException(status_code=422, detail="Provide exactly one of job_id or drive_id")
+
+    if drive_id:
+        recruiter = _profile_for_user(supabase, user_id)
+        approved_request = (
+            supabase.table("drive_requests")
+            .select("id,placement_drive_id")
+            .eq("recruiter_id", recruiter["id"])
+            .eq("placement_drive_id", str(drive_id))
+            .eq("status", "approved")
+            .limit(1)
+            .execute()
+        )
+        if not approved_request.data:
+            raise HTTPException(status_code=404, detail="Approved campus drive not found for this recruiter")
+        drive_result = (
+            supabase.table("placement_drives").select("*")
+            .eq("id", str(drive_id)).limit(1).execute()
+        )
+        if not drive_result.data:
+            raise HTTPException(status_code=404, detail="Placement drive not found")
+        drive = drive_result.data[0]
+        applications = (
+            supabase.table("drive_applications")
+            .select(
+                "*, student_profiles("
+                "id,full_name,email,phone,university,course,graduation_year,cgpa,"
+                "skills,github_url,linkedin_url,portfolio_url,projects,work_experience"
+                ")"
+            )
+            .eq("drive_id", str(drive_id))
+            .order("registered_at", desc=True)
+            .execute()
+        ).data or []
+        minimum_cgpa = float((drive.get("eligibility") or {}).get("min_cgpa") or 0)
+        candidates = []
+        for application in applications:
+            student = application.get("student_profiles") or {}
+            cgpa = float(student.get("cgpa") or 0)
+            score = round(min(100, 60 + (40 if not minimum_cgpa or cgpa >= minimum_cgpa else 0)))
+            candidates.append({
+                **application,
+                "source_type": "drive",
+                "drive": drive,
+                "match_score": score,
+                "match_reason": "Meets the campus-drive eligibility criteria",
+                "skill_matches": [],
+                "missing_skills": [],
+            })
+        return sorted(candidates, key=lambda candidate: candidate["match_score"], reverse=True)
+
     job = _owned_job(supabase, job_id, user_id)
     applications = (
         supabase.table("applications")
@@ -413,6 +499,120 @@ async def get_ai_sorted_candidates(
         )
 
     return sorted(candidates, key=lambda candidate: candidate["match_score"], reverse=True)
+
+
+@router.get("/candidate-sources")
+async def list_candidate_sources(current_user=Depends(require_recruiter)):
+    """List direct jobs and approved campus drives that can have applicants."""
+    supabase = get_supabase()
+    user_id = str(current_user.id)
+    recruiter = _profile_for_user(supabase, user_id)
+    jobs = (
+        supabase.table("jobs").select("id,title,company,status,created_at")
+        .eq("recruiter_id", user_id).order("created_at", desc=True).execute()
+    ).data or []
+    requests = (
+        supabase.table("drive_requests")
+        .select("placement_drive_id,title,role,company_name,placement_drives(id,status)")
+        .eq("recruiter_id", recruiter["id"]).eq("status", "approved")
+        .not_.is_("placement_drive_id", "null")
+        .order("created_at", desc=True).execute()
+    ).data or []
+    drives = [
+        {
+            "id": request["placement_drive_id"],
+            "title": request.get("role") or request.get("title"),
+            "company": request.get("company_name"),
+            "status": (request.get("placement_drives") or {}).get("status"),
+        }
+        for request in requests if request.get("placement_drive_id")
+    ]
+    return {"jobs": jobs, "drives": drives}
+
+
+@router.put("/drive-applications/{application_id}")
+async def update_drive_application_status(
+    application_id: uuid.UUID,
+    data: DriveApplicationUpdate,
+    current_user=Depends(require_recruiter),
+):
+    """Move an applicant through a recruiter-owned approved campus drive."""
+    supabase = get_supabase()
+    recruiter = _profile_for_user(supabase, str(current_user.id))
+    application = (
+        supabase.table("drive_applications").select("id,drive_id,student_id")
+        .eq("id", str(application_id)).limit(1).execute()
+    )
+    if not application.data:
+        raise HTTPException(status_code=404, detail="Campus-drive application not found")
+    ownership = (
+        supabase.table("drive_requests").select("id")
+        .eq("recruiter_id", recruiter["id"])
+        .eq("placement_drive_id", application.data[0]["drive_id"])
+        .eq("status", "approved").limit(1).execute()
+    )
+    if not ownership.data:
+        raise HTTPException(status_code=404, detail="Campus-drive application not found")
+    result = (
+        supabase.table("drive_applications").update({"status": data.status})
+        .eq("id", str(application_id)).execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Could not update campus-drive application")
+
+    # Dispatch notification to the candidate
+    try:
+        student_id = application.data[0].get("student_id")
+        drive_id = application.data[0].get("drive_id")
+        student_res = supabase.table("student_profiles").select("user_id,full_name").eq("id", student_id).limit(1).execute()
+        drive_res = supabase.table("placement_drives").select("company_name,role,title").eq("id", drive_id).limit(1).execute()
+
+        if student_res.data and student_res.data[0].get("user_id"):
+            student_user_id = student_res.data[0]["user_id"]
+            d_info = drive_res.data[0] if drive_res.data else {}
+            role = d_info.get("role") or d_info.get("title") or "Placement Drive"
+            company = d_info.get("company_name") or "Company"
+
+            if data.status == "shortlisted":
+                n_title = f"Shortlisted for {role}! 🎉"
+                n_message = f"Congratulations! You have been shortlisted by {company} for {role}."
+                n_type = "application_update"
+            elif data.status == "interviewed":
+                n_title = f"Interview Scheduled with {company} 📅"
+                n_message = f"You have been scheduled for an interview with {company} for {role}."
+                n_type = "interview_scheduled"
+            elif data.status in ("selected", "offered"):
+                n_title = f"Selected for {role}! 🏆"
+                n_message = f"Congratulations! You have been selected by {company} for {role}."
+                n_type = "offer_received"
+            elif data.status == "rejected":
+                n_title = f"Application Update: {company}"
+                n_message = f"Your application for {role} at {company} was not selected at this time."
+                n_type = "application_update"
+            else:
+                n_title = f"Application Status: {data.status.capitalize()}"
+                n_message = f"Your status for {role} at {company} has been updated to {data.status}."
+                n_type = "application_update"
+
+            from app.routers.notifications import send_notification
+            send_notification(
+                supabase,
+                user_id=student_user_id,
+                notif_type=n_type,
+                title=n_title,
+                message=n_message,
+                data={
+                    "drive_application_id": str(application_id),
+                    "drive_id": drive_id,
+                    "status": data.status,
+                    "company": company,
+                    "role": role,
+                },
+            )
+    except Exception as exc:
+        logger.warning(f"Could not dispatch notification for drive application {application_id}: {exc}")
+
+    return result.data[0]
 
 
 @router.post("/ai-search")

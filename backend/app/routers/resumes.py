@@ -18,6 +18,7 @@ from typing import Optional, Dict, Any
 import logging
 import uuid
 import io
+import json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -122,29 +123,40 @@ async def upload_resume(
 
         resume_id = str(uuid.uuid4())
 
-        # Attempt database insert with valid schema columns only!
-        if student_id:
-            try:
-                resume_data = {
-                    "student_id": student_id,
-                    "original_filename": file.filename,
-                    "parsed_text": parsed_text,
-                    "extracted_data": extracted,
-                    "status": "parsed",
-                }
-                result = supabase.table("resumes").insert(resume_data).execute()
-                if result.data and len(result.data) > 0:
-                    resume_id = result.data[0]["id"]
-                    logger.info(f"Resume saved successfully with ID: {resume_id}")
-            except Exception as dbe:
-                logger.error(f"Could not save resume to DB: {dbe}")
+        # A successful response must mean the resume was actually persisted.
+        # Previously database errors were swallowed, so the page looked successful
+        # until the next login and then lost the resume state.
+        if not student_id:
+            raise HTTPException(status_code=409, detail="Create your student profile before uploading a resume")
+
+        resume_data = {
+            "student_id": student_id,
+            "original_filename": file.filename,
+            "parsed_text": parsed_text,
+            "extracted_data": extracted,
+            "status": "parsed",
+        }
+        try:
+            result = supabase.table("resumes").insert(resume_data).execute()
+        except Exception as dbe:
+            logger.error(f"Could not save resume to DB: {dbe}")
+            raise HTTPException(status_code=500, detail="Resume was parsed but could not be saved. Please try again.")
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Resume was parsed but the database did not return a saved record")
+        saved_resume = result.data[0]
+        resume_id = saved_resume["id"]
+        logger.info(f"Resume saved successfully with ID: {resume_id}")
 
         # Calculate ATS score immediately
         ats_score_data = calculate_ats_score(parsed_text)
 
         return {
             "resume_id": resume_id,
+            "id": resume_id,
             "filename": file.filename,
+            "original_filename": file.filename,
+            "created_at": saved_resume.get("created_at"),
+            "status": saved_resume.get("status", "parsed"),
             "parsed_text_length": len(parsed_text),
             "extracted_data": extracted,
             "ats_score": ats_score_data,
@@ -157,7 +169,7 @@ async def upload_resume(
         logger.error(f"Resume upload error: {e}")
         raise HTTPException(status_code=500, detail="Failed to process resume")
 
-
+@router.get("")
 @router.get("/")
 async def list_resumes(current_user=Depends(require_student)):
     """List all resumes for current student"""
@@ -244,6 +256,7 @@ async def improve_resume_endpoint(resume_id: uuid.UUID, current_user=Depends(req
 
 
 @router.post("/{resume_id}/sync-to-profile")
+@router.post("/{resume_id}/sync-to-profile/")
 async def sync_resume_to_profile(
     resume_id: str,
     payload: Optional[SyncProfileRequest] = None,
@@ -283,6 +296,12 @@ async def sync_resume_to_profile(
                         extracted = latest_resume.data[0].get("extracted_data")
             except Exception as le:
                 logger.warning(f"Lookup latest resume failed: {le}")
+
+        if isinstance(extracted, str):
+            try:
+                extracted = json.loads(extracted)
+            except Exception:
+                pass
 
         if not extracted:
             raise HTTPException(
@@ -368,13 +387,23 @@ async def sync_resume_to_profile(
 
         if update.get("university"):
             normalized_name = str(update["university"]).strip().casefold()
-            universities = supabase.table("university_profiles") \
-                .select("id,name").execute()
+            universities = (supabase.table("university_profiles").select("id,name").execute()).data or []
             matches = [
-                university for university in (universities.data or [])
-                if (university.get("name") or "").strip().casefold() == normalized_name
+                u for u in universities
+                if normalized_name in (u.get("name") or "").strip().casefold()
+                or (u.get("name") or "").strip().casefold() in normalized_name
             ]
-            update["university_id"] = matches[0]["id"] if len(matches) == 1 else None
+            if len(matches) == 1:
+                update["university_id"] = matches[0]["id"]
+                update["university"] = matches[0]["name"]
+            elif len(universities) == 1:
+                update["university_id"] = universities[0]["id"]
+                update["university"] = universities[0]["name"]
+            elif profile.get("university_id"):
+                # Retain existing valid university_id; never overwrite with None
+                update.pop("university_id", None)
+        elif profile.get("university_id"):
+            update.pop("university_id", None)
 
         # Work experience: merge/overwrite from resume if it has richer data
         ext_experience = extracted.get("experience") or []
@@ -419,6 +448,17 @@ async def sync_resume_to_profile(
         if not update:
             return {"message": "Profile is already up to date. No new data to sync.", "synced_fields": []}
 
+        # Sanitize any null bytes (\x00) from string values before sending to PostgreSQL
+        def _sanitize(v):
+            if isinstance(v, str):
+                return v.replace("\x00", "")
+            elif isinstance(v, list):
+                return [_sanitize(x) for x in v]
+            elif isinstance(v, dict):
+                return {k: _sanitize(val) for k, val in v.items()}
+            return v
+
+        update = _sanitize(update)
 
         # Recalculate profile completion
         merged_profile = {**profile, **update}
