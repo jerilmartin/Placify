@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GraduationCap, Loader2, Percent, Search, Sparkles, UserRoundSearch } from "lucide-react";
+import { CalendarPlus, GraduationCap, Loader2, Percent, Search, Sparkles, UserRoundSearch } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { applicationsApi, recruitersApi } from "@/lib/api";
-import type { ApplicationStatus, CandidateApplication } from "@/lib/types";
+import { ScheduleInterviewDialog } from "@/components/schedule-interview-dialog";
+import { applicationsApi, interviewAppointmentsApi, recruitersApi } from "@/lib/api";
+import type { ApplicationStatus, CandidateApplication, InterviewAppointment } from "@/lib/types";
 
 const PIPELINE: ApplicationStatus[] = [
   "submitted", "reviewed", "shortlisted", "interviewed", "offered", "accepted", "rejected",
@@ -16,6 +17,7 @@ const DRIVE_PIPELINE = ["registered", "eligible", "shortlisted", "interviewed", 
 type CandidateStatus = ApplicationStatus | (typeof DRIVE_PIPELINE)[number];
 type Candidate = Omit<CandidateApplication, "status"> & { status: CandidateStatus; source_type?: "drive" };
 type CandidateSource = { id: string; title: string; company: string; status?: string; kind: "job" | "drive" };
+type SearchStudent = { id: string; cgpa?: number | null; skills?: string[]; created_at?: string; full_name?: string; email?: string; university?: string };
 
 export default function RecruiterCandidatesPage() {
   const [sources, setSources] = useState<CandidateSource[]>([]);
@@ -28,6 +30,14 @@ export default function RecruiterCandidatesPage() {
   const [aiSearching, setAiSearching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [scheduledIds, setScheduledIds] = useState<Set<string>>(new Set());
+  const [scheduleCandidate, setScheduleCandidate] = useState<Candidate | null>(null);
+
+  useEffect(() => {
+    interviewAppointmentsApi.forRecruiter()
+      .then(({ data }) => setScheduledIds(new Set((data as InterviewAppointment[]).filter((item) => item.status === "scheduled").map((item) => item.job_application_id || item.drive_application_id || ""))))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     recruitersApi.getCandidateSources()
@@ -64,7 +74,7 @@ export default function RecruiterCandidatesPage() {
     try {
       const { data } = await recruitersApi.aiSearch(query);
       const studentsList = data.students || [];
-      const mapped: Candidate[] = studentsList.map((student: any) => {
+      const mapped: Candidate[] = studentsList.map((student: SearchStudent) => {
         const existing = candidates.find((c) => c.student_profiles?.id === student.id);
         if (existing) return existing;
         return {
@@ -77,7 +87,7 @@ export default function RecruiterCandidatesPage() {
           skill_matches: student.skills || [],
           missing_skills: [],
           created_at: student.created_at || new Date().toISOString(),
-        } as Candidate;
+        } as unknown as Candidate;
       });
       setAiResults(mapped);
       toast.success(`AI found ${mapped.length} matching candidate${mapped.length !== 1 ? "s" : ""}`);
@@ -124,19 +134,19 @@ export default function RecruiterCandidatesPage() {
   return (
     <div className="mx-auto max-w-[1400px] p-6 md:p-8">
       <div className="mb-6">
-        <div className="text-xs uppercase tracking-widest text-muted-foreground">Recruiter · Candidates</div>
-        <h1 className="mt-1 text-2xl font-semibold">Candidate pipeline</h1>
+        <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Recruiter · Candidates</div>
+        <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-foreground">Candidate Pipeline</h1>
         <p className="mt-1 text-sm text-muted-foreground">Review direct-job applicants and applications to your approved campus drives.</p>
       </div>
 
-      <div className="mb-6 rounded-xl border border-border bg-surface p-4">
+      <div className="mb-6 rounded-xl border border-border bg-card p-5 shadow-sharp">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[240px_1fr_120px_130px_auto] items-end">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Hiring Source</label>
             <select
               value={sourceKey}
               onChange={(event) => { setSourceKey(event.target.value); setAiResults(null); setQuery(""); }}
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
             >
               {sources.map((source) => (
                 <option key={`${source.kind}:${source.id}`} value={`${source.kind}:${source.id}`}>
@@ -148,7 +158,7 @@ export default function RecruiterCandidatesPage() {
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-              <Sparkles className="h-3 w-3 text-primary" />
+              <Sparkles className="h-3 w-3 text-[#D4AF37]" />
               AI Natural Search
             </label>
             <div className="relative">
@@ -214,12 +224,12 @@ export default function RecruiterCandidatesPage() {
         {(minCgpa || minScore) && (
           <div className="mt-3 pt-3 border-t border-border flex items-center gap-2 text-xs text-muted-foreground">
             <span>Active score filters:</span>
-            {minCgpa && <span className="rounded bg-elevated px-2 py-0.5 text-foreground font-medium">CGPA ≥ {minCgpa}</span>}
-            {minScore && <span className="rounded bg-elevated px-2 py-0.5 text-foreground font-medium">AI Match ≥ {minScore}%</span>}
+            {minCgpa && <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-foreground font-medium">CGPA ≥ {minCgpa}</span>}
+            {minScore && <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-foreground font-medium">AI Match ≥ {minScore}%</span>}
             <button
               type="button"
               onClick={() => { setMinCgpa(""); setMinScore(""); }}
-              className="text-primary hover:underline ml-1"
+              className="text-[#800020] font-medium hover:underline ml-1"
             >
               Reset filters
             </button>
@@ -228,21 +238,21 @@ export default function RecruiterCandidatesPage() {
       </div>
 
       {aiResults !== null && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 text-sm">
-          <UserRoundSearch className="h-4 w-4 text-primary" />
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-[#D4AF37]/50 bg-[#D4AF37]/10 px-4 py-3 text-sm text-foreground shadow-sharp">
+          <UserRoundSearch className="h-4 w-4 text-[#800020]" />
           <span>Showing <strong>{aiResults.length}</strong> matching applicants for: <em>&ldquo;{query}&rdquo;</em></span>
-          <button className="ml-auto text-xs text-muted-foreground hover:text-foreground" onClick={() => { setAiResults(null); setQuery(""); }}>
+          <button className="ml-auto text-xs font-medium text-muted-foreground hover:text-foreground" onClick={() => { setAiResults(null); setQuery(""); }}>
             Clear
           </button>
         </div>
       )}
 
       {loading ? (
-        <div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+        <div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-[#800020]" /></div>
       ) : sources.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-12 text-center text-sm text-muted-foreground">Post a direct job or submit a campus-drive request before reviewing applicants.</div>
+        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground shadow-sharp">Post a direct job or submit a campus-drive request before reviewing applicants.</div>
       ) : visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-12 text-center">
+        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center shadow-sharp">
           <UserRoundSearch className="mx-auto h-8 w-8 text-muted-foreground" />
           <p className="mt-3 text-sm text-muted-foreground">No matching applicants for this job yet.</p>
         </div>
@@ -251,47 +261,41 @@ export default function RecruiterCandidatesPage() {
           {visible.map((candidate) => {
             const student = candidate.student_profiles;
             return (
-              <article key={candidate.id} className="rounded-xl border border-border bg-surface p-5">
+              <article key={candidate.id} className="rounded-xl border border-border bg-card p-5 shadow-sharp hover:border-[#D4AF37]/40 transition-colors">
                 <div className="grid gap-5 lg:grid-cols-[1fr_220px]">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="font-semibold">{student?.full_name || "Unnamed student"}</h2>
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{candidate.match_score}% match</span>
-                      <span className="rounded-full bg-elevated px-2 py-0.5 text-xs capitalize">{candidate.status}</span>
+                      <h2 className="font-serif text-lg font-bold text-foreground">{student?.full_name || "Unnamed student"}</h2>
+                      <span className="rounded-md border border-[#D4AF37]/50 bg-[#D4AF37]/15 px-2.5 py-0.5 text-xs font-semibold text-[#8C6D23]">{candidate.match_score}% match</span>
+                      <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-xs capitalize text-muted-foreground font-medium">{candidate.status}</span>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">{student?.course || "Course not provided"} · {student?.university || "University not provided"} · CGPA {student?.cgpa ?? "—"}</p>
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {(student?.skills || []).map((skill) => (
-                        <span key={skill} className={candidate.skill_matches?.some((match) => match.toLowerCase() === skill.toLowerCase()) ? "rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300" : "rounded bg-elevated px-2 py-1 text-xs"}>{skill}</span>
+                        <span key={skill} className={candidate.skill_matches?.some((match) => match.toLowerCase() === skill.toLowerCase()) ? "rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800" : "rounded-md border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground"}>{skill}</span>
                       ))}
                     </div>
                     <div className="mt-3 flex gap-3 text-xs">
-                      {student?.email && <a className="text-primary hover:underline" href={`mailto:${student.email}`}>{student.email}</a>}
-                      {student?.linkedin_url && <a className="text-primary hover:underline" href={student.linkedin_url} target="_blank" rel="noreferrer">LinkedIn</a>}
-                      {student?.portfolio_url && <a className="text-primary hover:underline" href={student.portfolio_url} target="_blank" rel="noreferrer">Portfolio</a>}
+                      {student?.email && <a className="text-[#800020] font-medium hover:underline" href={`mailto:${student.email}`}>{student.email}</a>}
+                      {student?.linkedin_url && <a className="text-[#800020] font-medium hover:underline" href={student.linkedin_url} target="_blank" rel="noreferrer">LinkedIn</a>}
+                      {student?.portfolio_url && <a className="text-[#800020] font-medium hover:underline" href={student.portfolio_url} target="_blank" rel="noreferrer">Portfolio</a>}
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">Pipeline stage</label>
+                    <label className="text-xs text-muted-foreground font-medium">Pipeline stage</label>
                     <select
                       value={candidate.status}
                       disabled={updating === candidate.id}
                       onChange={(event) => updateCandidate(candidate, event.target.value as CandidateStatus)}
-                      className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm capitalize"
+                      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm capitalize"
                     >
                       {(candidate.source_type === "drive" ? DRIVE_PIPELINE : PIPELINE).map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
-                    {candidate.source_type !== "drive" && <>
-                      <label className="block pt-1 text-xs text-muted-foreground">Interview / next-step date</label>
-                      <Input
-                        type="date"
-                        value={candidate.next_step_date || ""}
-                        onChange={(event) => updateCandidate(candidate, "interviewed", {
-                          next_step: "Recruiter interview",
-                          next_step_date: event.target.value,
-                        })}
-                      />
-                    </>}
+                    {aiResults === null && !["rejected", "withdrawn", "accepted", "selected"].includes(candidate.status) && (
+                      <Button type="button" variant="outline" size="sm" className="w-full gap-2" disabled={scheduledIds.has(candidate.id)} onClick={() => setScheduleCandidate(candidate)}>
+                        <CalendarPlus className="h-3.5 w-3.5" />{scheduledIds.has(candidate.id) ? "Interview scheduled" : "Schedule interview"}
+                      </Button>
+                    )}
                     <Button className="w-full" size="sm" disabled={updating === candidate.id} onClick={() => updateCandidate(candidate, "shortlisted")}>Shortlist</Button>
                   </div>
                 </div>
@@ -299,6 +303,19 @@ export default function RecruiterCandidatesPage() {
             );
           })}
         </div>
+      )}
+      {scheduleCandidate && (
+        <ScheduleInterviewDialog
+          candidateId={scheduleCandidate.id}
+          candidateName={scheduleCandidate.student_profiles?.full_name || "Candidate"}
+          roleTitle={sources.find((item) => `${item.kind}:${item.id}` === sourceKey)?.title || "Application"}
+          applicationKind={scheduleCandidate.source_type === "drive" ? "drive" : "job"}
+          onClose={() => setScheduleCandidate(null)}
+          onCreated={(applicationId) => {
+            setScheduledIds((current) => new Set([...current, applicationId]));
+            setScheduleCandidate(null);
+          }}
+        />
       )}
     </div>
   );

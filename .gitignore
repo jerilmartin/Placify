@@ -57,4 +57,5 @@ archive.zip
 Thumbs.db
 desktop.ini
 .venv-py39/
+backend/.demo-credentials.json
 

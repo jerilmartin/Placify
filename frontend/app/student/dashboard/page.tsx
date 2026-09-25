@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  ArrowUpRight, ArrowRight, Sparkles, Bot,
-  Calendar, TrendingUp, CheckCircle2, Info, AlertTriangle, Plus,
+  ArrowRight, Sparkles, Bot,
+  TrendingUp, CheckCircle2, Info,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, PolarAngleAxis, PolarGrid,
@@ -16,7 +16,8 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { aiApi } from "@/lib/api";
+import { aiApi, interviewAppointmentsApi } from "@/lib/api";
+import type { InterviewAppointment } from "@/lib/types";
 
 // Default empty trend (8 weeks of zeroes) — overwritten with real data on load
 const EMPTY_TREND = Array.from({ length: 8 }, (_, i) => ({ d: `W${i + 1}`, applied: 0, interviews: 0 }));
@@ -43,12 +44,42 @@ interface StudentProfile {
 interface DriveApplication {
   id: string;
   status: string;
+  registered_at?: string;
+  created_at?: string;
   placement_drives: {
     company_name: string;
     role: string | null;
     title: string;
     drive_date: string | null;
   } | null;
+}
+
+interface PlacementRisk {
+  risk_level?: string;
+  probability?: number;
+  placement_probability?: number;
+  factors?: Record<string, number>;
+  top_improvements?: string[];
+  tips?: string[];
+}
+
+interface StrengthSection {
+  section?: string;
+  label?: string;
+  score: number;
+  max_score: number;
+  percentage: number;
+}
+
+interface ProfileStrength {
+  level?: string;
+  overall_score?: number;
+  sections?: StrengthSection[] | Record<string, number>;
+}
+
+interface PracticeInterview {
+  interview_type?: string;
+  responses?: Array<{ evaluation?: { score?: number } }>;
 }
 
 interface Drive {
@@ -65,11 +96,12 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [applications, setApplications] = useState<DriveApplication[]>([]);
   const [drives, setDrives] = useState<Drive[]>([]);
+  const [appointments, setAppointments] = useState<InterviewAppointment[]>([]);
   const [trendData, setTrendData] = useState(EMPTY_TREND);
   const [radarData, setRadarData] = useState(DEFAULT_RADAR);
   const [loading, setLoading] = useState(true);
-  const [placementRisk, setPlacementRisk] = useState<any>(null);
-  const [profileStrength, setProfileStrength] = useState<any>(null);
+  const [placementRisk, setPlacementRisk] = useState<PlacementRisk | null>(null);
+  const [profileStrength, setProfileStrength] = useState<ProfileStrength | null>(null);
 
   const firstName = profile?.full_name?.split(" ")[0] || user?.full_name?.split(" ")[0] || "there";
 
@@ -93,9 +125,13 @@ export default function Dashboard() {
           .order("registered_at", { ascending: false });
         const realApps = (apps as unknown as DriveApplication[]) || [];
         setApplications(realApps);
+        const scheduledAppointments: InterviewAppointment[] = await interviewAppointmentsApi.forStudent()
+          .then(({ data }) => data || [])
+          .catch(() => []);
+        setAppointments(scheduledAppointments);
 
         // Compute application trend (last 8 weeks from real timestamps)
-        if (realApps.length > 0) {
+        if (realApps.length > 0 || scheduledAppointments.length > 0) {
           const now = new Date();
           const weekTrend = Array.from({ length: 8 }, (_, i) => ({
             d: `W${8 - i}`,
@@ -104,11 +140,14 @@ export default function Dashboard() {
           }));
           const trendArr = weekTrend.map((w) => ({
             d: w.d,
-            applied: realApps.filter((a: any) => {
+            applied: realApps.filter((a) => {
               const t = new Date(a.registered_at || a.created_at || 0);
               return t >= w.weekStart && t < w.weekEnd;
             }).length,
-            interviews: 0,
+            interviews: scheduledAppointments.filter((appointment) => {
+              const time = new Date(appointment.starts_at);
+              return appointment.status !== "cancelled" && time >= w.weekStart && time < w.weekEnd;
+            }).length,
           }));
           setTrendData(trendArr);
         }
@@ -127,9 +166,9 @@ export default function Dashboard() {
           const typeScores: Record<string, number[]> = {
             technical: [], behavioral: [], system_design: [], hr: []
           };
-          interviews.forEach((iv: any) => {
+          (interviews as PracticeInterview[]).forEach((iv) => {
             const responses = iv.responses || [];
-            const scores = responses.map((r: any) => r?.evaluation?.score || 0).filter(Boolean);
+            const scores = responses.map((r) => r?.evaluation?.score || 0).filter(Boolean);
             if (scores.length > 0) {
               const avg = scores.reduce((a: number, b: number) => a + b, 0) / scores.length;
               const type = iv.interview_type || "technical";
@@ -226,31 +265,33 @@ export default function Dashboard() {
         className="mb-6 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end"
       >
         <div>
-          <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
             {new Date().toLocaleDateString("en-IN", { weekday: "long", month: "long", day: "numeric" })}
           </div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-[28px]">
+          <h1 className="mt-1 font-display text-2xl font-medium tracking-tight md:text-[30px] text-foreground">
             Good morning, {firstName}.
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {applications.length > 0
-              ? <>You have <span className="text-foreground">{applications.length} drive application{applications.length !== 1 ? "s" : ""}</span> tracked.</>
+              ? <>You have <span className="font-semibold text-foreground">{applications.length} drive application{applications.length !== 1 ? "s" : ""}</span> tracked.</>
               : "Start by completing your profile and exploring placement drives."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" asChild>
             <Link href="/student/profile">
-              <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Update profile
+              <Sparkles className="mr-1.5 h-3.5 w-3.5 text-primary" /> Update profile
             </Link>
           </Button>
-          <Button size="sm" asChild>
+          <Button size="sm" asChild className="bg-primary text-primary-foreground hover:bg-[#660019]">
             <Link href="/student/jobs">
               <Bot className="mr-1.5 h-3.5 w-3.5" /> View drives
             </Link>
           </Button>
         </div>
       </motion.div>
+
+      {appointments.some((appointment) => appointment.status === "scheduled" && new Date(appointment.starts_at) >= new Date()) && <div className="mb-6 rounded-lg border border-primary/25 bg-card p-4 shadow-sharp"><div className="text-xs font-semibold uppercase tracking-wider text-primary">Next recruiter interview</div>{appointments.filter((appointment) => appointment.status === "scheduled" && new Date(appointment.starts_at) >= new Date()).sort((a, b) => a.starts_at.localeCompare(b.starts_at)).slice(0, 1).map((appointment) => <div key={appointment.id} className="mt-1 flex flex-wrap items-center justify-between gap-3"><p className="text-sm"><span className="font-semibold">{appointment.company_name} · {appointment.role_title}</span> — {new Date(appointment.starts_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</p><Link href="/student/applications" className="text-sm font-semibold text-primary hover:underline">View details →</Link></div>)}</div>}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -260,35 +301,37 @@ export default function Dashboard() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: i * 0.04 }}
-            className="group relative overflow-hidden rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary/30"
+            className="group rounded-lg border border-border bg-card p-4 shadow-sharp transition-colors hover:border-border/90"
           >
             <div className="flex items-start justify-between">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{k.label}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{k.label}</div>
               <TrendingUp className={cn("h-3.5 w-3.5", k.trend === "up" ? "text-success" : "text-muted-foreground")} />
             </div>
-            <div className="mt-3 flex items-baseline gap-1">
-              <span className="text-3xl font-semibold tracking-tight tabular-nums">{k.value}</span>
-              {k.suffix && <span className="text-sm text-muted-foreground">{k.suffix}</span>}
+            <div className="mt-2.5 flex items-baseline gap-1">
+              <span className="font-display text-3xl font-semibold tracking-tight tabular-nums text-foreground">{k.value}</span>
+              {k.suffix && <span className="text-sm font-medium text-muted-foreground">{k.suffix}</span>}
             </div>
-            <div className="mt-2 flex items-center gap-2 text-[12px]">
-              <span className={cn("rounded-md px-1.5 py-0.5", k.trend === "up" ? "bg-success/12 text-success" : "bg-muted text-muted-foreground")}>
+            <div className="mt-2 flex items-center gap-2 text-[11.5px]">
+              <span className={cn(
+                "rounded px-1.5 py-0.5 font-medium",
+                k.trend === "up" ? "border border-[#E8D9A8] bg-[#FCF9EE] text-[#785A00]" : "bg-muted text-muted-foreground"
+              )}>
                 {k.delta}
               </span>
-              <span className="text-muted-foreground">{k.hint}</span>
+              <span className="text-muted-foreground truncate">{k.hint}</span>
             </div>
-            <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/10 opacity-0 blur-2xl transition-opacity group-hover:opacity-100" />
           </motion.div>
         ))}
       </div>
 
       {/* Profile completion banner if incomplete */}
       {(profile?.profile_completion ?? 0) < 60 && (
-        <div className="mt-4 flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3">
+        <div className="mt-4 flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3">
           <Info className="h-4 w-4 text-warning shrink-0" />
-          <p className="text-[13px] text-warning">
+          <p className="text-[13px] text-foreground">
             Your profile is only <strong>{profile?.profile_completion ?? 0}%</strong> complete. Fill in your CGPA, skills, and course to unlock drive eligibility checks.
           </p>
-          <Button size="sm" asChild className="ml-auto shrink-0">
+          <Button size="sm" asChild className="ml-auto shrink-0 bg-primary text-primary-foreground hover:bg-[#660019]">
             <Link href="/student/profile">Complete profile</Link>
           </Button>
         </div>
@@ -297,15 +340,15 @@ export default function Dashboard() {
       {/* Visual Analytics Row */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Chart card */}
-        <div className="lg:col-span-2 rounded-xl border border-border bg-surface p-5">
+        <div className="lg:col-span-2 rounded-lg border border-border bg-card p-5 shadow-sharp">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-[15px] font-medium">Application activity</h3>
+              <h3 className="font-display text-[16px] font-semibold text-foreground">Application Activity</h3>
               <p className="text-[12px] text-muted-foreground">Applications sent vs. interviews scheduled · last 8 weeks</p>
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Applied</span>
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[oklch(0.72_0.14_235)]" /> Interviews</span>
+            <div className="flex items-center gap-3 text-[11.5px] font-medium text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#800020]" /> Applied</span>
+              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#0A192F]" /> Interviews</span>
             </div>
           </div>
           <div className="mt-4 h-[220px]">
@@ -313,48 +356,50 @@ export default function Dashboard() {
               <AreaChart data={trendData} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
                 <defs>
                   <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="oklch(0.68 0.19 285)" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="oklch(0.68 0.19 285)" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#800020" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#800020" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="g2" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="oklch(0.72 0.14 235)" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="oklch(0.72 0.14 235)" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#0A192F" stopOpacity={0.20} />
+                    <stop offset="100%" stopColor="#0A192F" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="oklch(1 0 0 / 0.05)" vertical={false} />
-                <XAxis dataKey="d" stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} width={30} />
+                <CartesianGrid stroke="#E5E0D8" vertical={false} />
+                <XAxis dataKey="d" stroke="#78716C" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#78716C" fontSize={11} tickLine={false} axisLine={false} width={30} />
                 <Tooltip
                   contentStyle={{
-                    background: "oklch(0.19 0.017 270)",
-                    border: "1px solid oklch(1 0 0 / 0.1)",
-                    borderRadius: 10,
+                    background: "#FFFFFF",
+                    border: "1px solid #E5E0D8",
+                    borderRadius: 6,
                     fontSize: 12,
+                    boxShadow: "0 4px 12px rgba(10,25,47,0.06)",
+                    color: "#1C1917",
                   }}
                 />
-                <Area type="monotone" dataKey="applied" stroke="oklch(0.68 0.19 285)" strokeWidth={2} fill="url(#g1)" />
-                <Area type="monotone" dataKey="interviews" stroke="oklch(0.72 0.14 235)" strokeWidth={2} fill="url(#g2)" />
+                <Area type="monotone" dataKey="applied" stroke="#800020" strokeWidth={2} fill="url(#g1)" />
+                <Area type="monotone" dataKey="interviews" stroke="#0A192F" strokeWidth={2} fill="url(#g2)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Radar */}
-        <div className="rounded-xl border border-border bg-surface p-5">
-          <h3 className="text-[15px] font-medium">Interview readiness</h3>
-          <p className="text-[12px] text-muted-foreground">Based on your completed mock interviews</p>
+        <div className="rounded-lg border border-border bg-card p-5 shadow-sharp">
+          <h3 className="font-display text-[16px] font-semibold text-foreground">Interview Readiness</h3>
+          <p className="text-[12px] text-muted-foreground">Based on completed mock assessment scores</p>
           {radarData.every(d => d.A === 0) ? (
             <div className="flex flex-col items-center justify-center h-[200px] text-center gap-2">
               <p className="text-[13px] text-muted-foreground">No interview data yet.</p>
-              <Link href="/student/interview" className="text-[12px] text-primary hover:underline">Start a mock interview →</Link>
+              <Link href="/student/interview" className="text-[12px] font-semibold text-primary hover:underline">Start a mock interview →</Link>
             </div>
           ) : (
             <div className="mt-2 h-[200px]">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarData} outerRadius="70%">
-                  <PolarGrid stroke="oklch(1 0 0 / 0.08)" />
-                  <PolarAngleAxis dataKey="axis" tick={{ fill: "oklch(0.68 0.02 270)", fontSize: 10 }} />
-                  <Radar dataKey="A" stroke="oklch(0.68 0.19 285)" fill="oklch(0.68 0.19 285)" fillOpacity={0.25} />
+                  <PolarGrid stroke="#E5E0D8" />
+                  <PolarAngleAxis dataKey="axis" tick={{ fill: "#78716C", fontSize: 10 }} />
+                  <Radar dataKey="A" stroke="#800020" fill="#D4AF37" fillOpacity={0.3} />
                 </RadarChart>
               </ResponsiveContainer>
             </div>
@@ -490,7 +535,7 @@ export default function Dashboard() {
                   ))}
                 </div>
               )}
-              {(placementRisk.top_improvements?.length > 0 || placementRisk.tips?.length > 0) && (
+              {((placementRisk.top_improvements?.length ?? 0) > 0 || (placementRisk.tips?.length ?? 0) > 0) && (
                 <ul className="mt-4 space-y-1.5">
                   {(placementRisk.top_improvements || placementRisk.tips || []).slice(0, 3).map((tip: string, i: number) => (
                     <li key={i} className="flex items-start gap-2 text-[12.5px]">
@@ -520,7 +565,7 @@ export default function Dashboard() {
               <Progress value={profileStrength.overall_score ?? 0} className="mt-3 h-1.5" />
               <div className="mt-4 space-y-2.5">
                 {Array.isArray(profileStrength.sections) ? (
-                  profileStrength.sections.map((sec: any) => (
+                  profileStrength.sections.map((sec: StrengthSection) => (
                     <div key={sec.section || sec.label}>
                       <div className="mb-1 flex justify-between text-[12px]">
                         <span className="text-muted-foreground">{sec.label || sec.section}</span>
@@ -548,27 +593,26 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* AI career suggestion card */}
-      <div className="mt-4 relative overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/12 via-surface to-surface p-5">
-        <div className="aurora opacity-40" />
-        <div className="relative">
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
-            <Sparkles className="h-3 w-3" /> Career AI
-          </div>
-          <h3 className="mt-3 text-[16px] font-medium leading-snug">
-            Complete your profile to get personalised career recommendations.
-          </h3>
-          <p className="mt-2 text-[13px] text-muted-foreground">
-            Add your CGPA, skills, and work experience to unlock AI-powered job matching and eligibility checks for placement drives.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button size="sm" asChild>
-              <Link href="/student/profile">Update Profile <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link>
-            </Button>
-            <Button size="sm" variant="outline" asChild>
-              <Link href="/student/jobs">Browse Drives</Link>
-            </Button>
-          </div>
+      {/* Career Guidance card */}
+      <div className="mt-4 rounded-lg border border-border bg-card p-6 shadow-sharp">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded border border-primary/30 bg-primary/5 px-2 py-0.5 text-[11px] font-semibold text-primary">
+            <Sparkles className="h-3 w-3" /> Career Advisory
+          </span>
+        </div>
+        <h3 className="font-display mt-3 text-[17px] font-semibold leading-snug text-foreground">
+          Complete your profile to unlock verified job matching.
+        </h3>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground max-w-2xl">
+          Add your verified CGPA, skills, and projects to automatically evaluate eligibility for active placement drives.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2.5">
+          <Button size="sm" asChild className="bg-primary text-primary-foreground hover:bg-[#660019]">
+            <Link href="/student/profile">Update Profile <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/student/jobs">Browse Placement Drives</Link>
+          </Button>
         </div>
       </div>
     </div>

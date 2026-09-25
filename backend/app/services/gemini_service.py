@@ -1,6 +1,6 @@
 """
 Gemini AI Service
-Handles all interactions with Google Gemini 2.5 Pro/Flash
+Handles Google Gemini generation, quota failover, and honest unavailable states.
 """
 
 import google.generativeai as genai
@@ -9,9 +9,46 @@ import asyncio
 import logging
 import json
 import re
+import time
 from typing import Optional
+from google.api_core.exceptions import ResourceExhausted
 
 logger = logging.getLogger(__name__)
+
+
+class AIServiceUnavailable(RuntimeError):
+    """A required Gemini operation did not produce a usable result."""
+
+    def __init__(self, message: str, status_code: int = 503):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+_rate_limited_until: dict[str, float] = {}
+
+
+async def _generate_content(model, prompt: str):
+    """Generate with a bounded request and an independent lower-cost quota fallback."""
+    primary_name = model.model_name
+    fallback_name = settings.gemini_model_fallback.strip()
+    fallback = (
+        genai.GenerativeModel(fallback_name)
+        if fallback_name and not primary_name.endswith("/" + fallback_name)
+        else None
+    )
+    def call(candidate):
+        return candidate.generate_content(prompt, request_options={"timeout": 30})
+
+    if fallback and _rate_limited_until.get(primary_name, 0) > time.monotonic():
+        return await asyncio.to_thread(call, fallback)
+    try:
+        return await asyncio.to_thread(call, model)
+    except ResourceExhausted:
+        _rate_limited_until[primary_name] = time.monotonic() + 300
+        if not fallback:
+            raise
+        logger.warning("Gemini model %s reached its quota; retrying with %s", primary_name, fallback_name)
+        return await asyncio.to_thread(call, fallback)
 
 
 def _safe_text(response) -> str:
@@ -37,7 +74,7 @@ def _get_model(use_flash: bool = False):
     global _gemini_configured
     if not _gemini_configured:
         if not settings.gemini_api_key:
-            logger.warning("GEMINI_API_KEY not set. AI features will return stubs.")
+            logger.warning("GEMINI_API_KEY not set. AI features are unavailable.")
             return None
         genai.configure(api_key=settings.gemini_api_key)
         _gemini_configured = True
@@ -46,65 +83,13 @@ def _get_model(use_flash: bool = False):
     return genai.GenerativeModel(model_name)
 
 
-def _stub_response(feature: str, data: dict = None) -> dict:
-    """Return stub response when Gemini is not configured"""
-    logger.info(f"Gemini stub response for: {feature}")
-    stubs = {
-        "extract_resume_data": {
-            "name": "Sample Student",
-            "email": "",
-            "phone": "",
-            "skills": ["Python", "JavaScript", "SQL"],
-            "education": [{"degree": "B.Tech CSE", "institution": "Sample University", "year": 2025}],
-            "experience": [],
-            "projects": [],
-        },
-        "improve_resume": {
-            "ats_score": 65,
-            "overall_grade": "C+",
-            "issues": ["Add quantified achievements", "Include industry keywords", "Improve project descriptions"],
-            "keyword_suggestions": ["Docker", "AWS", "REST API", "Agile"],
-            "section_scores": {"summary": 60, "experience": 50, "skills": 70, "education": 80},
-        },
-        "generate_cover_letter": "Dear Hiring Manager,\n\nI am excited to apply for this position...\n\n[AI Gemini cover letter will appear here when API key is configured]\n\nBest regards,\nYour Name",
-        "interview_questions": [
-            "Tell me about yourself.",
-            "What are your key technical skills?",
-            "Describe a challenging project you worked on.",
-            "How do you handle tight deadlines?",
-            "Where do you see yourself in 5 years?",
-        ],
-        "evaluate_answer": {
-            "score": 7,
-            "feedback": "Good answer. Consider adding more specific examples.",
-            "strengths": ["Clear communication", "Relevant experience mentioned"],
-            "improvements": ["Add metrics/numbers", "Be more concise"],
-        },
-        "career_guidance": "Based on your profile, I recommend focusing on cloud computing skills (AWS/GCP) and system design to boost your placement probability. Consider building 2-3 impactful projects.\n\n[Full AI guidance available with Gemini API key]",
-        "resume_vs_job": {
-            "match_percentage": 72,
-            "matching_skills": ["Python", "SQL"],
-            "missing_skills": ["Docker", "Kubernetes", "AWS"],
-            "recommendations": ["Add a cloud project to your portfolio", "Get AWS Cloud Practitioner certification"],
-            "cover_letter_tips": ["Emphasize Python experience", "Mention your team collaboration skills"],
-        },
-        "placement_risk": {
-            "risk_level": "Medium",
-            "probability": 74,
-            "factors": {"skills": 70, "cgpa": 80, "projects": 60, "activity": 65},
-            "top_improvements": ["Complete 2 more projects", "Get SQL certification", "Attend mock interviews"],
-        },
-    }
-    return stubs.get(feature, {"message": "AI feature not available - configure GEMINI_API_KEY"})
-
-
 # ── Resume Features ──────────────────────────────────────────────────────────
 
 async def extract_resume_data(resume_text: str) -> dict:
     """Extract structured data from resume text using Gemini"""
     model = _get_model(use_flash=True)
     if not model:
-        return _stub_response("extract_resume_data")
+        return {}
 
     try:
         prompt = f"""
@@ -154,10 +139,10 @@ Return this exact JSON schema (fill every field you can find, use null for missi
 Return ONLY the JSON object.
         """
 
-        response = await asyncio.to_thread(model.generate_content, prompt)
+        response = await _generate_content(model, prompt)
         text = _safe_text(response).strip()
         if not text:
-            return _stub_response("extract_resume_data")
+            return {}
         clean_text = text
         if "```" in clean_text:
             match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean_text, re.DOTALL)
@@ -174,7 +159,7 @@ Return ONLY the JSON object.
         return json.loads(clean_text)
     except Exception as e:
         logger.error(f"Gemini extract_resume_data error: {e}")
-        return _stub_response("extract_resume_data")
+        return {}
 
 
 
@@ -182,7 +167,7 @@ async def improve_resume(resume_text: str) -> dict:
     """Generate specific, contextual AI resume improvement suggestions"""
     model = _get_model(use_flash=True)
     if not model:
-        return _stub_response("improve_resume")
+        raise AIServiceUnavailable("AI resume review is unavailable. Check the Gemini configuration and try again.")
 
     try:
         prompt = f"""You are a senior technical recruiter who has reviewed thousands of software engineering resumes.
@@ -219,10 +204,10 @@ Return ONLY valid JSON:
     ]
 }}
 """
-        response = await asyncio.to_thread(model.generate_content, prompt)
+        response = await _generate_content(model, prompt)
         text = _safe_text(response).strip()
         if not text:
-            return _stub_response("improve_resume")
+            raise AIServiceUnavailable("Gemini returned an empty resume review. Please try again.")
         # Clean markdown code fences if present
         if "```" in text:
             match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -234,9 +219,16 @@ Return ONLY valid JSON:
         if brace_match:
             text = brace_match.group(1)
         return json.loads(text)
+    except AIServiceUnavailable:
+        raise
+    except ResourceExhausted as e:
+        raise AIServiceUnavailable(
+            "Gemini request quota is exhausted on both configured models. Try again after quota reset.",
+            status_code=429,
+        ) from e
     except Exception as e:
         logger.error(f"Gemini improve_resume error: {e}")
-        return _stub_response("improve_resume")
+        raise AIServiceUnavailable("Gemini could not review this resume. Please try again shortly.") from e
 
 
 
@@ -244,7 +236,9 @@ async def generate_cover_letter(resume_text: str, job: dict) -> str:
     """Generate tailored cover letter"""
     model = _get_model(use_flash=True)
     if not model:
-        return _stub_response("generate_cover_letter")
+        raise AIServiceUnavailable("AI cover-letter generation is unavailable. Check the Gemini configuration and try again.")
+    if not (resume_text or "").strip():
+        raise ValueError("This resume has no readable text. Upload a text-based PDF or DOCX and try again.")
 
     try:
         resume_summary = (resume_text or "")[:2500]
@@ -276,14 +270,22 @@ Guidelines:
 - Do NOT use generic placeholder brackets like [Your Name] or [Insert Date] if the candidate's name or background can be inferred from the resume.
 - Return ONLY the final cover letter text.
         """
-        response = await asyncio.to_thread(model.generate_content, prompt)
+        response = await _generate_content(model, prompt)
         text = _safe_text(response).strip()
         if not text:
-            return _stub_response("generate_cover_letter")
+            raise AIServiceUnavailable("Gemini returned an empty cover letter. Please try again.")
         return text
+    except AIServiceUnavailable:
+        raise
+    except ResourceExhausted as e:
+        logger.warning("Gemini cover-letter quota exhausted: %s", e)
+        raise AIServiceUnavailable(
+            "Gemini request quota is exhausted on both configured models. Try again after quota reset or review billing in Google AI Studio.",
+            status_code=429,
+        ) from e
     except Exception as e:
         logger.error(f"Gemini cover letter error: {e}", exc_info=True)
-        return f"Dear Hiring Team at {job.get('company', 'the company')},\n\nI am writing to express my strong enthusiasm for the {job.get('title', 'open position')} role. Based on my technical background and relevant experience, I am confident I would be a great addition to your engineering team.\n\nThank you for considering my application.\n\nSincerely,\nCandidate"
+        raise AIServiceUnavailable("Gemini could not generate this cover letter. Please try again shortly.") from e
 
 
 # ── Interview Features ───────────────────────────────────────────────────────
@@ -293,9 +295,51 @@ async def generate_interview_questions(
     difficulty: str, target_role: Optional[str], num_questions: int
 ) -> list:
     """Generate highly contextual, role-specific interview questions"""
+    interview_type = getattr(interview_type, "value", interview_type)
+    difficulty = getattr(difficulty, "value", difficulty)
+    role = (job or {}).get("title") or target_role or "the target role"
+    fallback = {
+        "technical": [
+            f"Which data structure would you use for a high-throughput {role} feature, and why?",
+            f"Walk through how you would debug a slow API used by a {role} team.",
+            "How would you test a function that handles invalid input and concurrent requests?",
+            "Describe a technical trade-off you made in a project and how you measured the outcome.",
+            "How would you investigate and fix a production bug that you cannot reproduce locally?",
+        ],
+        "system_design": [
+            f"Design a service relevant to {role}; clarify requirements and estimate scale first.",
+            "How would you design a rate limiter for a public API? Discuss storage and failure modes.",
+            "How would you keep data consistent when two services update the same record?",
+            "Where would you add caching, and how would you handle invalidation?",
+            "What would you monitor, and how would your design change at ten times the traffic?",
+        ],
+        "behavioral": [
+            "Tell me about a time you disagreed with a teammate. What did you do and what changed?",
+            "Describe a deadline you were at risk of missing. How did you prioritize and communicate?",
+            "Give an example of feedback you received and how you acted on it.",
+            "Tell me about a project that failed. What did you learn and change afterward?",
+            "Describe a time you helped someone else succeed without formal authority.",
+        ],
+        "hr": [
+            f"Why are you interested in {role}, and what evidence shows you are prepared?",
+            "Which type of team and work environment helps you do your best work?",
+            "What is one skill you are developing now, and how are you measuring progress?",
+            "Tell me about a difficult professional decision and how you made it.",
+            "What questions would you ask a hiring manager before accepting this role?",
+        ],
+    }
+    base = fallback.get(interview_type, fallback["technical"])
+    follow_ups = [
+        "What assumptions would you validate before committing to your approach?",
+        "How would you measure whether your solution was successful?",
+        "What would you change if you had half the available time?",
+        "Describe the biggest risk in your approach and how you would mitigate it.",
+        "How would you explain this decision to a teammate with a different perspective?",
+    ]
+    fallback_questions = (base + follow_ups)[:num_questions]
     model = _get_model(use_flash=True)
     if not model:
-        return _stub_response("interview_questions")
+        return fallback_questions
 
     try:
         job_title = job.get("title") if job else target_role or "Software Developer"
@@ -345,10 +389,10 @@ Rules:
 Return ONLY a JSON array of {num_questions} question strings. No numbering, no markdown, no extra text.
 Example format: ["Question 1?", "Question 2?"]
 """
-        response = model.generate_content(prompt)
+        response = await _generate_content(model, prompt)
         text = _safe_text(response).strip()
         if not text:
-            return _stub_response("interview_questions")
+            return fallback_questions
         # Extract JSON array from response
         arr_match = re.search(r'(\[.*?\])', text, re.DOTALL)
         if arr_match:
@@ -359,18 +403,31 @@ Example format: ["Question 1?", "Question 2?"]
                 text = text[4:].strip()
         questions = json.loads(text)
         if not isinstance(questions, list):
-            return _stub_response("interview_questions")
-        return questions[:num_questions]
+            return fallback_questions
+        questions = [q.strip() for q in questions if isinstance(q, str) and q.strip()]
+        return questions[:num_questions] if len(questions) >= num_questions else fallback_questions
     except Exception as e:
         logger.error(f"Gemini question generation error: {e}")
-        return _stub_response("interview_questions")
+        return fallback_questions
 
 
 async def evaluate_interview_answer(question: str, answer: str, interview_type: str) -> dict:
     """Evaluate an interview answer and provide feedback"""
+    def basic_feedback(reason: str = "AI evaluation is unavailable") -> dict:
+        words = answer.split()
+        has_example = any(term in answer.lower() for term in ("for example", "in my project", "when i", "we built", "i built"))
+        has_outcome = any(term in answer.lower() for term in ("result", "improved", "reduced", "increased", "%", "measured"))
+        return {
+            "score": 0,
+            "feedback": f"Basic structure check only; {reason}. Review whether your answer directly addresses the question and explains your reasoning.",
+            "strengths": ["You provided a substantial response"] if len(words) >= 40 else [],
+            "improvements": (["Add a concrete example"] if not has_example else []) + (["Explain the outcome or trade-off"] if not has_outcome else []),
+            "ideal_answer_hints": ["State your approach, support it with an example, and explain the result."],
+            "evaluation_mode": "basic",
+        }
     model = _get_model(use_flash=True)
     if not model:
-        return _stub_response("evaluate_answer")
+        return basic_feedback("Gemini is not configured on the backend")
 
     try:
         prompt = f"""
@@ -381,8 +438,8 @@ async def evaluate_interview_answer(question: str, answer: str, interview_type: 
         
         Return JSON:
         {{
-            "score": <1-10>,
-            "feedback": "<brief feedback>",
+            "score": <0-100>,
+            "feedback": "<specific feedback grounded in the answer>",
             "strengths": ["<strength1>"],
             "improvements": ["<improvement1>"],
             "ideal_answer_hints": ["<hint1>"]
@@ -390,33 +447,54 @@ async def evaluate_interview_answer(question: str, answer: str, interview_type: 
         
         Return ONLY valid JSON.
         """
-        response = model.generate_content(prompt)
+        response = await _generate_content(model, prompt)
         text = _safe_text(response).strip().strip("```json").strip("```")
         if not text:
-            return _stub_response("evaluate_answer")
-        return json.loads(text)
+            return basic_feedback()
+        result = json.loads(text)
+        result["score"] = max(0, min(100, int(result.get("score", 0))))
+        result["evaluation_mode"] = "ai"
+        return result
+    except ResourceExhausted as e:
+        logger.warning("Gemini answer-evaluation quota exhausted: %s", e)
+        return basic_feedback("Gemini request quota is exhausted")
     except Exception as e:
         logger.error(f"Gemini answer evaluation error: {e}")
-        return _stub_response("evaluate_answer")
+        return basic_feedback()
 
 
 async def generate_interview_summary(interview_data: dict) -> dict:
     """Generate comprehensive interview feedback report"""
+    responses = interview_data.get("responses") or []
+    scores = []
+    for response in responses:
+        evaluation = response.get("evaluation") or {}
+        if evaluation.get("evaluation_mode") == "basic":
+            continue
+        score = int(evaluation.get("score", 0))
+        if not evaluation.get("evaluation_mode") and 0 < score <= 10:
+            score *= 10  # Sessions created before the rubric used a 1-10 scale.
+        scores.append(max(0, min(100, score)))
+    average = round(sum(scores) / len(scores)) if scores else 0
+    basic = {
+        "overall_score": average,
+        "confidence_score": average,
+        "communication_score": average,
+        "technical_accuracy_score": average,
+        "strengths": list(dict.fromkeys(s for r in responses for s in r.get("evaluation", {}).get("strengths", [])))[:4],
+        "improvements": list(dict.fromkeys(s for r in responses for s in r.get("evaluation", {}).get("improvements", [])))[:4],
+        "overall_recommendation": "Review your answer-level feedback and practice the weakest question again. Scores are practice guidance, not hiring predictions.",
+    }
+    if not scores:
+        basic["overall_recommendation"] = "AI scoring was unavailable for this session. Review the writing checklist and try another practice round when Gemini is available."
+        return basic
     model = _get_model()
     if not model:
-        return {
-            "overall_score": 70,
-            "confidence_score": 65,
-            "communication_score": 75,
-            "technical_accuracy_score": 60,
-            "strengths": ["Good communication", "Relevant experience"],
-            "improvements": ["Be more specific", "Add technical depth"],
-            "overall_recommendation": "Keep practicing! Focus on technical concepts.",
-        }
+        return basic
     try:
-        responses = interview_data.get("responses", [])
         qa_summary = "\n".join([
-            f"Q: {r['question']}\nA: {r['answer']}\nScore: {r.get('evaluation', {}).get('score', 'N/A')}/10"
+            f"Q: {r['question']}\nA: {r['answer']}\nScore: "
+            + ("Not scored" if r.get("evaluation", {}).get("evaluation_mode") == "basic" else f"{r.get('evaluation', {}).get('score', 'N/A')}/100")
             for r in responses
         ])
 
@@ -438,14 +516,15 @@ async def generate_interview_summary(interview_data: dict) -> dict:
             "overall_recommendation": "<detailed recommendation>"
         }}
         """
-        response = model.generate_content(prompt)
+        response = await _generate_content(model, prompt)
         text = _safe_text(response).strip().strip("```json").strip("```")
         if not text:
-            return {"overall_score": 70, "overall_recommendation": "AI response was empty. Please retry."}
-        return json.loads(text)
+            return basic
+        result = json.loads(text)
+        return {**basic, **result, "overall_score": average}
     except Exception as e:
         logger.error(f"Interview summary error: {e}")
-        return {"overall_score": 70, "overall_recommendation": "Summary generation failed. Please retry."}
+        return basic
 
 
 # ── Career & Recruiter Features ───────────────────────────────────────────────
@@ -454,7 +533,7 @@ async def career_guidance_chat(message: str, history: list, student_context: dic
     """AI career guidance chatbot — concise, direct, student-profile-aware"""
     model = _get_model(use_flash=True)
     if not model:
-        return _stub_response("career_guidance")
+        return "Gemini career guidance is unavailable. Please ask again after the AI service is configured."
 
     try:
         name = student_context.get("full_name") or "Student"
@@ -501,7 +580,7 @@ CRITICAL RULES:
                 history_text = "Previous messages:\n" + "\n".join(formatted_turns) + "\n\n"
 
         full_prompt = f"{system_context}\n\n{history_text}Student: {message}\nMentor:"
-        response = await asyncio.to_thread(model.generate_content, full_prompt)
+        response = await _generate_content(model, full_prompt)
         text = _safe_text(response)
         if not text:
             return "I couldn't generate a response. Please try rephrasing."
@@ -515,7 +594,7 @@ async def analyze_resume_vs_job(resume_text: str, resume_data: dict, job: dict) 
     """Deep resume vs job analysis"""
     model = _get_model(use_flash=True)
     if not model:
-        return _stub_response("resume_vs_job")
+        raise AIServiceUnavailable("AI resume matching is unavailable. Check the Gemini configuration and try again.")
 
     try:
         skills_req = [str(s) for s in (job.get("skills_required") or []) if s]
@@ -540,14 +619,21 @@ async def analyze_resume_vs_job(resume_text: str, resume_data: dict, job: dict) 
             "overall_assessment": "<brief assessment>"
         }}
         """
-        response = await asyncio.to_thread(model.generate_content, prompt)
+        response = await _generate_content(model, prompt)
         text = _safe_text(response).strip().strip("```json").strip("```")
         if not text:
-            return _stub_response("resume_vs_job")
+            raise AIServiceUnavailable("Gemini returned an empty resume match analysis. Please try again.")
         return json.loads(text)
+    except AIServiceUnavailable:
+        raise
+    except ResourceExhausted as e:
+        raise AIServiceUnavailable(
+            "Gemini request quota is exhausted on both configured models. Try again after quota reset.",
+            status_code=429,
+        ) from e
     except Exception as e:
         logger.error(f"Resume vs job analysis error: {e}")
-        return _stub_response("resume_vs_job")
+        raise AIServiceUnavailable("Gemini could not analyze this resume against the job. Please try again shortly.") from e
 
 
 async def recruiter_ai_search(query: str, supabase) -> dict:
@@ -570,7 +656,7 @@ async def recruiter_ai_search(query: str, supabase) -> dict:
         }}
         Return ONLY valid JSON.
         """
-        response = model.generate_content(prompt)
+        response = await _generate_content(model, prompt)
         text = _safe_text(response).strip().strip("```json").strip("```")
         if not text:
             return {"students": [], "message": "AI could not parse query. Try a different search term."}

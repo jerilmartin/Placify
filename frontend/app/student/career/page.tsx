@@ -210,10 +210,10 @@ export default function CareerPage() {
   return (
     <div className="mx-auto flex h-[calc(100vh-60px)] max-w-3xl flex-col px-4 py-6 md:px-6">
       <div className="mb-4">
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
-          <Sparkles className="h-3 w-3" /> Career AI · trained on your profile
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-0.5 text-[11px] font-semibold text-primary">
+          <Sparkles className="h-3 w-3" /> Career Advisory · Institutional Intelligence
         </div>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight">How can I help?</h1>
+        <h1 className="font-display mt-2.5 text-2xl font-medium tracking-tight text-foreground">Career Consultation</h1>
       </div>
 
       {/* Messages */}
@@ -229,15 +229,15 @@ export default function CareerPage() {
             >
               {m.role === "ai" ? (
                 <div className="flex max-w-[88%] gap-3">
-                  <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[oklch(0.55_0.20_235)] shadow-sm">
-                    <Sparkles className="h-3.5 w-3.5 text-white" />
+                  <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0A192F] border border-[#D4AF37]/50 shadow-xs">
+                    <Sparkles className="h-3.5 w-3.5 text-[#D4AF37]" />
                   </span>
-                  <div className="rounded-2xl rounded-tl-md border border-border bg-surface px-4 py-3 shadow-sm">
+                  <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-sharp">
                     <FormattedMessage text={m.text} />
                   </div>
                 </div>
               ) : (
-                <div className="max-w-[80%] rounded-2xl rounded-tr-md bg-primary px-4 py-3 text-[14px] leading-relaxed text-primary-foreground">
+                <div className="max-w-[80%] rounded-lg bg-primary px-4 py-3 text-[14px] leading-relaxed text-primary-foreground shadow-xs">
                   {m.text}
                 </div>
               )}
@@ -246,10 +246,10 @@ export default function CareerPage() {
         </AnimatePresence>
         {thinking && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3">
-            <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[oklch(0.55_0.20_235)]">
-              <Sparkles className="h-3.5 w-3.5 text-white" />
+            <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0A192F] border border-[#D4AF37]/50">
+              <Sparkles className="h-3.5 w-3.5 text-[#D4AF37]" />
             </span>
-            <div className="flex gap-1 rounded-2xl rounded-tl-md border border-border bg-surface px-4 py-4">
+            <div className="flex gap-1.5 rounded-lg border border-border bg-card px-4 py-4 shadow-sharp">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" />
@@ -265,7 +265,7 @@ export default function CareerPage() {
             <button
               key={p}
               onClick={() => send(p)}
-              className="rounded-lg border border-border bg-surface px-3.5 py-3 text-left text-[13px] transition-colors hover:border-primary/40 hover:bg-elevated"
+              className="rounded-lg border border-border bg-card px-3.5 py-3 text-left text-[12.5px] font-medium transition-colors hover:border-primary/40 hover:bg-muted/40 text-foreground"
             >
               {p}
             </button>
@@ -276,10 +276,10 @@ export default function CareerPage() {
       {/* Composer */}
       <form
         onSubmit={(e) => { e.preventDefault(); send(input); }}
-        className="sticky bottom-0 mt-4 rounded-2xl border border-border bg-surface p-2 shadow-elevated"
+        className="sticky bottom-0 mt-4 rounded-lg border border-border bg-card p-2 shadow-elevated"
       >
         <div className="flex items-end gap-2">
-          <Button type="button" size="icon" variant="ghost" aria-label="Attach">
+          <Button type="button" size="icon" variant="ghost" aria-label="Attach" className="text-muted-foreground hover:text-foreground">
             <Paperclip className="h-4 w-4" />
           </Button>
           <textarea
@@ -291,14 +291,14 @@ export default function CareerPage() {
                 send(input);
               }
             }}
-            placeholder="Ask about salary, roles, resume, interview prep…"
+            placeholder="Inquire regarding compensation benchmarks, eligibility requirements, or technical interview strategies…"
             rows={1}
-            className="flex-1 resize-none bg-transparent px-1 py-2 text-[14px] outline-none placeholder:text-muted-foreground"
+            className="flex-1 resize-none bg-transparent px-1 py-2 text-[13.5px] outline-none placeholder:text-muted-foreground text-foreground"
           />
-          <Button type="button" size="icon" variant="ghost" aria-label="Voice">
+          <Button type="button" size="icon" variant="ghost" aria-label="Voice" className="text-muted-foreground hover:text-foreground">
             <Mic className="h-4 w-4" />
           </Button>
-          <Button type="submit" size="icon" disabled={!input.trim()}>
+          <Button type="submit" size="icon" disabled={!input.trim()} className="bg-primary text-primary-foreground hover:bg-[#660019]">
             <ArrowUp className="h-4 w-4" />
           </Button>
         </div>

@@ -21,6 +21,7 @@ from app.routers import (
     jobs,
     applications,
     interviews,
+    interview_appointments,
     recruiters,
     universities,
     mentors,
@@ -93,6 +94,7 @@ app.include_router(resumes.router,       prefix="/api/resumes",        tags=["Re
 app.include_router(jobs.router,          prefix="/api/jobs",           tags=["Jobs"])
 app.include_router(applications.router,  prefix="/api/applications",   tags=["Applications"])
 app.include_router(interviews.router,    prefix="/api/interviews",     tags=["Interviews"])
+app.include_router(interview_appointments.router, prefix="/api/interview-appointments", tags=["Recruiter Interview Schedule"])
 app.include_router(recruiters.router,    prefix="/api/recruiters",     tags=["Recruiters"])
 app.include_router(universities.router,  prefix="/api/universities",   tags=["Universities"])
 app.include_router(mentors.router,       prefix="/api/mentors",        tags=["Mentors"])

@@ -68,27 +68,28 @@ export default function PostJobPage() {
   };
 
   const field = (label: string, key: keyof typeof form, type = "text", placeholder = "") => (
-    <div>
-      <label className="block text-xs font-medium text-slate-400 mb-1.5">{label}</label>
+    <div className="space-y-1.5">
+      <label className="block text-xs font-medium text-foreground">{label}</label>
       <input type={type} value={String(form[key])} onChange={e => setForm(f => ({...f, [key]: e.target.value}))} placeholder={placeholder}
-        className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50" />
+        className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
     </div>
   );
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="mx-auto max-w-3xl px-4 py-6 md:px-8 md:py-8">
       <div className="mb-6">
-        <div className="flex items-center gap-2 text-sm text-slate-500 mb-1"><PlusCircle className="w-4 h-4" /> Post Job</div>
-        <h1 className="text-2xl font-bold text-white">Post a Job</h1>
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1"><PlusCircle className="w-3.5 h-3.5 text-[#800020]" /> Post Job</div>
+        <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">Post a Job</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Publish a new role to campus talent networks and direct applicants.</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="glass p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-6 shadow-sharp space-y-5">
         {verified === false && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 shadow-sharp">
             Job publishing is locked until a university placement representative verifies your company.
           </div>
         )}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {field("Job Title *", "title", "text", "e.g. Software Engineer")}
           {field("Company *", "company", "text", "e.g. TCS, Infosys")}
           {field("Location", "location", "text", "e.g. Bangalore, Remote")}
@@ -99,49 +100,49 @@ export default function PostJobPage() {
           {field("Salary Range", "salary_range", "text", "e.g. ₹6L - ₹12L")}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Job Type</label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-foreground">Job Type</label>
             <select value={form.job_type} onChange={e => setForm(f => ({...f, job_type: e.target.value}))}
-              className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50">
-              {JOB_TYPES.map(t => <option key={t} value={t} className="bg-[#13131a]">{t.replace("_"," ")}</option>)}
+              className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring capitalize">
+              {JOB_TYPES.map(t => <option key={t} value={t}>{t.replace("_"," ")}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Experience Level</label>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-foreground">Experience Level</label>
             <select value={form.experience_level} onChange={e => setForm(f => ({...f, experience_level: e.target.value}))}
-              className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50">
-              {EXP_LEVELS.map(t => <option key={t} value={t} className="bg-[#13131a]">{t}</option>)}
+              className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring capitalize">
+              {EXP_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">Job Description</label>
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-foreground">Job Description</label>
           <textarea value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} rows={4} placeholder="Describe the role and responsibilities…"
-            className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50 resize-none" />
+            className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none" />
         </div>
 
         {/* Skills */}
-        <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">Required Skills</label>
-          <div className="flex gap-2 mb-2">
+        <div className="space-y-2">
+          <label className="block text-xs font-medium text-foreground">Required Skills</label>
+          <div className="flex gap-2">
             <input value={skillInput} onChange={e => setSkillInput(e.target.value)} onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addSkill())} placeholder="Add skill + Enter"
-              className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50" />
-            <button type="button" onClick={addSkill} className="px-3 py-2 rounded-lg bg-blue-600/20 text-blue-300 text-sm border border-blue-500/20 hover:bg-blue-600/30">Add</button>
+              className="flex-1 px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            <button type="button" onClick={addSkill} className="px-4 py-2 rounded-md border border-border bg-card hover:bg-muted text-foreground text-sm font-medium transition-colors">Add</button>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {form.skills_required.map(s => (
-              <span key={s} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs border border-blue-500/20">
+              <span key={s} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground text-xs border border-border font-medium">
                 {s}
-                <button type="button" onClick={() => removeSkill(s)} className="hover:text-red-400 transition-colors">×</button>
+                <button type="button" onClick={() => removeSkill(s)} className="hover:text-destructive transition-colors">×</button>
               </span>
             ))}
           </div>
         </div>
 
         <button type="submit" disabled={loading || verified !== true}
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 font-semibold text-white hover:opacity-90 transition-all disabled:opacity-60 flex items-center justify-center gap-2">
+          className="w-full py-2.5 rounded-lg bg-[#800020] hover:bg-[#660019] text-white font-medium text-sm transition-all shadow-sharp disabled:opacity-60 flex items-center justify-center gap-2">
           {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Posting…</> : <><PlusCircle className="w-4 h-4" /> Post Job</>}
         </button>
       </form>

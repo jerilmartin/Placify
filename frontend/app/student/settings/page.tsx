@@ -27,9 +27,12 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8 md:py-8">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight md:text-[28px]">Settings</h1>
+      <div className="mb-6">
+        <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">Settings</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Manage your student profile preferences, security, and notification triggers.</p>
+      </div>
       <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
-        <nav className="space-y-0.5">
+        <nav className="space-y-1">
           {sections.map((s) => {
             const Icon = s.icon;
             const isActive = active === s.key;
@@ -38,26 +41,26 @@ export default function SettingsPage() {
                 key={s.key}
                 onClick={() => setActive(s.key)}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors",
-                  isActive ? "bg-elevated text-foreground" : "text-muted-foreground hover:bg-elevated/60 hover:text-foreground",
+                  "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors",
+                  isActive ? "border-l-2 border-[#D4AF37] bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                 )}
               >
-                <Icon className={cn("h-4 w-4", isActive && "text-primary")} />
+                <Icon className={cn("h-4 w-4", isActive ? "text-[#D4AF37]" : "text-muted-foreground")} />
                 {s.label}
               </button>
             );
           })}
         </nav>
 
-        <section className="rounded-xl border border-border bg-surface p-6">
+        <section className="rounded-xl border border-border bg-card p-6 shadow-sharp">
           {active === "profile" && (
             <div className="max-w-lg space-y-5">
               <div>
-                <h2 className="text-lg font-semibold">Profile</h2>
+                <h2 className="font-serif text-xl font-bold text-foreground">Profile Information</h2>
                 <p className="text-[13px] text-muted-foreground">How you appear across Placify.</p>
               </div>
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[oklch(0.55_0.20_235)] text-lg font-semibold text-white">
+                <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[#0A192F] text-lg font-serif font-bold text-[#D4AF37] border border-[#162740] shadow-sharp">
                   AS
                 </div>
                 <Button variant="outline" size="sm">Change avatar</Button>

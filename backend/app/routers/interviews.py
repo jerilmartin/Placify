@@ -130,23 +130,28 @@ async def submit_answer(data: InterviewAnswer, current_user=Depends(require_stud
         if interview["status"] != "active":
             raise HTTPException(status_code=400, detail="Interview session is not active")
 
+        questions_asked = interview.get("questions_asked") or []
+        responses = interview.get("responses") or []
+        if data.question_index != len(responses) or data.question_index >= len(questions_asked):
+            raise HTTPException(status_code=409, detail="This question was already answered or is out of order. Refresh the session.")
+        if data.question.strip() != questions_asked[data.question_index].strip():
+            raise HTTPException(status_code=400, detail="Question does not match the current session")
+
         # Evaluate answer with Gemini
         evaluation = await evaluate_interview_answer(
-            question=data.question,
+            question=questions_asked[data.question_index],
             answer=data.answer,
             interview_type=interview["interview_type"],
         )
 
         # Update responses
-        responses = interview.get("responses") or []
         responses.append({
-            "question": data.question,
+            "question": questions_asked[data.question_index],
             "answer": data.answer,
             "question_index": data.question_index,
             "evaluation": evaluation,
         })
 
-        questions_asked = interview.get("questions_asked") or []
         next_question = None
         is_complete = data.question_index >= len(questions_asked) - 1
 
@@ -181,6 +186,10 @@ async def complete_interview(interview_id: uuid.UUID, current_user=Depends(requi
     supabase = get_supabase()
     try:
         interview = _get_owned_interview(supabase, interview_id, current_user.id)
+        if not interview.get("responses"):
+            raise HTTPException(status_code=400, detail="Answer at least one question before ending the session")
+        if interview.get("feedback"):
+            return interview["feedback"]
         feedback = await generate_interview_summary(interview)
 
         supabase.table("interviews").update({

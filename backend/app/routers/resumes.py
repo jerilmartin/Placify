@@ -9,7 +9,8 @@ from app.middleware.auth import require_student
 from app.database import get_supabase
 from app.services.resume_service import parse_resume_pdf, calculate_ats_score
 from app.services.gemini_service import (
-    improve_resume, generate_cover_letter, extract_resume_data as gemini_extract_resume
+    AIServiceUnavailable, improve_resume, generate_cover_letter,
+    extract_resume_data as gemini_extract_resume
 )
 from app.services.scoring_service import calculate_profile_completion
 from ml.resume_parser import ResumeParserML
@@ -93,6 +94,11 @@ async def upload_resume(
 
         # Extract text from PDF
         parsed_text = parse_resume_pdf(content, file.filename)
+        if not parsed_text or not parsed_text.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="No readable text was found in this resume. Upload a text-based PDF or DOCX.",
+            )
 
         # Layer 1: Fast regex + spaCy extraction (contact info, skills)
         ml_extracted = ml_parser.extract_entities(parsed_text) if ml_parser else {}
@@ -119,6 +125,7 @@ async def upload_resume(
             "achievements": gemini_extracted.get("achievements") or ml_extracted.get("achievements", []),
             "linkedin": ml_extracted.get("linkedin") or gemini_extracted.get("linkedin", ""),
             "github": ml_extracted.get("github") or gemini_extracted.get("github", ""),
+            "_ai_parsed": bool(gemini_extracted),
         }
 
         resume_id = str(uuid.uuid4())
@@ -248,6 +255,8 @@ async def improve_resume_endpoint(resume_id: uuid.UUID, current_user=Depends(req
         suggestions = await improve_resume(resume.get("parsed_text", ""))
         return suggestions
 
+    except AIServiceUnavailable as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -264,38 +273,15 @@ async def sync_resume_to_profile(
 ):
     """
     Sync extracted resume data into the student's profile.
-    Accepts optional extracted_data in body so frontend can sync directly even if resume record lookup is in progress.
-    Merges skills (union), overwrites blank fields, never overwrites non-blank ones.
+    Uses only the authenticated student's saved extraction, never client-supplied data.
+    Merges skills and fills blank fields without overwriting profile edits.
     """
     supabase = get_supabase()
     try:
-        extracted = None
-
-        # Option 1: Provided directly in payload body from frontend state
-        if payload and payload.extracted_data:
-            extracted = payload.extracted_data
-
-        # Option 2: Lookup by resume_id in database
-        if not extracted and resume_id and resume_id not in ("latest", "undefined", "null"):
-            try:
-                owned_resume = _get_owned_resume(supabase, resume_id, current_user.id)
-                extracted = owned_resume.get("extracted_data")
-            except Exception as re:
-                logger.warning(f"Lookup by resume_id {resume_id} failed: {re}")
-
-        # Option 3: Fallback to current user's most recently uploaded resume
-        if not extracted:
-            try:
-                prof_check = supabase.table("student_profiles") \
-                    .select("id").eq("user_id", str(current_user.id)).limit(1).execute()
-                if prof_check.data and len(prof_check.data) > 0:
-                    latest_resume = supabase.table("resumes").select("*") \
-                        .eq("student_id", prof_check.data[0]["id"]) \
-                        .order("created_at", desc=True).limit(1).execute()
-                    if latest_resume.data and len(latest_resume.data) > 0:
-                        extracted = latest_resume.data[0].get("extracted_data")
-            except Exception as le:
-                logger.warning(f"Lookup latest resume failed: {le}")
+        if resume_id in ("latest", "undefined", "null"):
+            raise HTTPException(status_code=400, detail="Select a saved resume before syncing.")
+        owned_resume = _get_owned_resume(supabase, resume_id, current_user.id)
+        extracted = owned_resume.get("extracted_data")
 
         if isinstance(extracted, str):
             try:
@@ -303,10 +289,13 @@ async def sync_resume_to_profile(
             except Exception:
                 pass
 
-        if not extracted:
+        if not isinstance(extracted, dict) or not any(
+            extracted.get(key) for key in
+            ("name", "phone", "location", "bio", "skills", "education", "experience", "projects", "achievements", "linkedin", "github")
+        ):
             raise HTTPException(
-                status_code=404,
-                detail="No extracted resume data found to sync. Please re-upload your resume first."
+                status_code=422,
+                detail="No usable profile details were extracted from this resume. Try a text-based PDF or DOCX, then upload it again."
             )
 
         # Fetch current student profile
@@ -358,18 +347,19 @@ async def sync_resume_to_profile(
         # Skills: union of existing + extracted (deduplicated)
         existing_skills = profile.get("skills") or []
         new_skills = extracted.get("skills") or []
-        merged_skills = list(dict.fromkeys(existing_skills + new_skills))  # preserves order, deduplicates
+        if not isinstance(existing_skills, list):
+            existing_skills = []
+        if not isinstance(new_skills, list):
+            new_skills = []
+        merged_skills = list(dict.fromkeys(existing_skills + new_skills))
         if merged_skills != existing_skills:
             update["skills"] = merged_skills
 
         # Education: only sync if profile has none
         ext_education = extracted.get("education") or []
-        if not profile.get("course") and ext_education:
-            # Try to extract course from first education entry
-            first_edu = ext_education[0] if ext_education else {}
-            degree = first_edu.get("degree", "")
-            if degree:
-                update["course"] = degree
+        if isinstance(ext_education, list) and ext_education and isinstance(ext_education[0], dict):
+            first_edu = ext_education[0]
+            _fill_if_blank("course", first_edu.get("degree"))
             if not profile.get("cgpa") and first_edu.get("cgpa"):
                 try:
                     update["cgpa"] = float(first_edu["cgpa"])
@@ -382,8 +372,7 @@ async def sync_resume_to_profile(
                         update["graduation_year"] = yr
                 except (ValueError, TypeError):
                     pass
-            if not profile.get("university") and first_edu.get("institution"):
-                update["university"] = first_edu["institution"]
+            _fill_if_blank("university", first_edu.get("institution"))
 
         if update.get("university"):
             normalized_name = str(update["university"]).strip().casefold()
@@ -422,7 +411,7 @@ async def sync_resume_to_profile(
                         "description": exp.get("description") or exp.get("responsibilities") or "",
                         "skills_used": exp.get("skills_used") or exp.get("technologies") or [],
                     })
-            if work_exp:
+            if work_exp and work_exp != existing_exp:
                 update["work_experience"] = work_exp
 
         # Projects: merge/overwrite from resume if it has richer data
@@ -442,11 +431,15 @@ async def sync_resume_to_profile(
                         "live_url": proj.get("live_url") or proj.get("url") or "",
                         "duration": proj.get("duration") or "",
                     })
-            if projects:
+            if projects and projects != existing_proj:
                 update["projects"] = projects
 
         if not update:
-            return {"message": "Profile is already up to date. No new data to sync.", "synced_fields": []}
+            return {
+                "message": "No new fields to add from this resume. Existing profile details were kept.",
+                "synced_fields": [],
+                "profile_completion": profile.get("profile_completion", 0),
+            }
 
         # Sanitize any null bytes (\x00) from string values before sending to PostgreSQL
         def _sanitize(v):
@@ -469,6 +462,8 @@ async def sync_resume_to_profile(
             .update(update) \
             .eq("id", profile["id"]) \
             .execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="The profile update did not persist. Please retry.")
 
         synced_fields = [k for k in update.keys() if k != "profile_completion"]
         return {
@@ -521,6 +516,10 @@ async def generate_cover_letter_endpoint(
         )
         return {"cover_letter": cover_letter}
 
+    except AIServiceUnavailable as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:

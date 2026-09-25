@@ -70,7 +70,8 @@ export const resumesApi = {
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 export const jobsApi = {
   list: (params?: Record<string, unknown>) => apiClient.get("/api/jobs", { params }),
-  listDrives: () => apiClient.get("/api/jobs/drives"),
+    listDrives: () => apiClient.get("/api/jobs/drives"),
+    applyToDrive: (id: string) => apiClient.post(`/api/jobs/drives/${id}/apply`),
   getMatches: () => apiClient.get("/api/jobs/matches"),
   getById: (id: string) => apiClient.get(`/api/jobs/${id}`),
   create: (data: Record<string, unknown>) => apiClient.post("/api/jobs", data),
@@ -94,6 +95,13 @@ export const interviewsApi = {
   submitAnswer: (data: Record<string, unknown>) => apiClient.post("/api/interviews/answer", data),
   complete: (id: string) => apiClient.post(`/api/interviews/${id}/complete`),
   list: () => apiClient.get("/api/interviews"),
+};
+
+export const interviewAppointmentsApi = {
+  forRecruiter: () => apiClient.get("/api/interview-appointments/recruiter"),
+  forStudent: () => apiClient.get("/api/interview-appointments/student"),
+  create: (data: Record<string, unknown>) => apiClient.post("/api/interview-appointments/", data),
+  update: (id: string, data: Record<string, unknown>) => apiClient.put(`/api/interview-appointments/${id}`, data),
 };
 
 // ── Recruiters ────────────────────────────────────────────────────────────────

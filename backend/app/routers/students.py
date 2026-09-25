@@ -70,7 +70,9 @@ async def update_profile(data: StudentProfileUpdate, current_user=Depends(requir
     """Update current student's profile"""
     supabase = get_supabase()
     try:
-        update_data = data.model_dump(exclude_none=True)
+        # Include explicitly cleared fields (for example CGPA = null), while
+        # leaving fields omitted from a partial update untouched.
+        update_data = data.model_dump(exclude_unset=True)
         if "university" in update_data:
             normalized_name = (update_data["university"] or "").strip().casefold()
             universities = supabase.table("university_profiles") \

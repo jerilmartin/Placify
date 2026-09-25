@@ -164,6 +164,25 @@ export interface CandidateApplication extends Application {
   recommendation?: string;
 }
 
+export interface InterviewAppointment {
+  id: string;
+  recruiter_id: string;
+  student_id: string;
+  job_application_id: string | null;
+  drive_application_id: string | null;
+  company_name: string;
+  role_title: string;
+  round_name: string;
+  starts_at: string;
+  duration_minutes: number;
+  meeting_mode: "online" | "in_person";
+  meeting_url: string | null;
+  location: string | null;
+  notes: string | null;
+  status: "scheduled" | "completed" | "cancelled";
+  student_profiles?: { full_name?: string; email?: string; university?: string };
+}
+
 export interface RecruiterOverview {
   profile: RecruiterProfile;
   jobs: Job[];

@@ -19,25 +19,33 @@ export default function RecruiterAnalyticsPage() {
 
   return (
     <div className="mx-auto max-w-6xl p-6 md:p-8">
-      <div className="mb-6"><div className="text-xs uppercase tracking-widest text-muted-foreground">Recruiter</div><h1 className="mt-1 text-2xl font-semibold">Hiring analytics</h1></div>
+      <div className="mb-6">
+        <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Recruiter · Performance</div>
+        <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-foreground">Hiring Analytics</h1>
+      </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
           ["Total roles", data.metrics.total_jobs],
           ["Applicants", data.metrics.applications],
           ["Offers", data.metrics.offers],
           ["Hire conversion", `${conversion}%`],
-        ].map(([label, value]) => <div key={label} className="rounded-xl border border-border bg-surface p-4"><div className="text-xs text-muted-foreground">{label}</div><div className="mt-2 text-3xl font-semibold">{value}</div></div>)}
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-border bg-card p-4 shadow-sharp">
+            <div className="text-xs uppercase tracking-wider font-medium text-muted-foreground">{label}</div>
+            <div className="mt-2 font-serif text-3xl font-bold text-foreground tabular-nums">{value}</div>
+          </div>
+        ))}
       </div>
-      <div className="mt-5 rounded-xl border border-border bg-surface p-5">
-        <h2 className="text-sm font-medium">Pipeline conversion</h2>
+      <div className="mt-5 rounded-xl border border-border bg-card p-5 shadow-sharp">
+        <h2 className="font-serif text-base font-semibold text-foreground">Pipeline conversion</h2>
         <div className="mt-4 h-[340px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data.funnel}>
-              <CartesianGrid stroke="currentColor" className="text-border" vertical={false} />
-              <XAxis dataKey="stage" tickLine={false} axisLine={false} />
-              <YAxis tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ background: "var(--color-background)", border: "1px solid var(--color-border)", borderRadius: 10 }} />
-              <Bar dataKey="count" fill="var(--color-primary)" radius={[7, 7, 0, 0]} />
+              <CartesianGrid stroke="#E5E0D8" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="stage" stroke="#64748B" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke="#64748B" fontSize={11} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid #E5E0D8", borderRadius: 8, color: "#1C1917", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }} />
+              <Bar dataKey="count" fill="#800020" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

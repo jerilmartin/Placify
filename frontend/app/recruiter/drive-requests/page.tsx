@@ -89,11 +89,11 @@ const EMPTY_FORM = {
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  pending: "bg-amber-500/15 text-amber-300",
-  changes_requested: "bg-blue-500/15 text-blue-300",
-  approved: "bg-emerald-500/15 text-emerald-300",
-  rejected: "bg-red-500/15 text-red-300",
-  cancelled: "bg-muted text-muted-foreground",
+  pending: "bg-amber-50 border border-amber-200 text-amber-800",
+  changes_requested: "bg-blue-50 border border-blue-200 text-blue-800",
+  approved: "bg-emerald-50 border border-emerald-200 text-emerald-800",
+  rejected: "bg-rose-50 border border-rose-200 text-rose-800",
+  cancelled: "bg-muted border border-border text-muted-foreground",
 };
 
 export default function RecruiterDriveRequestsPage() {
@@ -261,13 +261,13 @@ export default function RecruiterDriveRequestsPage() {
   return (
     <div className="mx-auto max-w-6xl p-6 md:p-8">
       <div className="mb-6">
-        <div className="text-xs uppercase tracking-widest text-muted-foreground">Recruiter · Campus hiring</div>
-        <h1 className="mt-1 text-2xl font-semibold">Drive requests</h1>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Recruiter · Campus Hiring</div>
+        <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-foreground">Drive Requests</h1>
         <p className="mt-1 text-sm text-muted-foreground">Propose a campus drive. Students see it only after the selected university approves it.</p>
       </div>
 
-      <form onSubmit={submit} className="rounded-xl border border-border bg-surface p-5">
-        <div className="mb-4 flex items-center gap-2"><Send className="h-4 w-4 text-primary" /><h2 className="font-medium">{editingId ? "Revise and resubmit" : "New drive proposal"}</h2></div>
+      <form onSubmit={submit} className="rounded-xl border border-border bg-card p-6 shadow-sharp">
+        <div className="mb-4 flex items-center gap-2"><Send className="h-4 w-4 text-primary" /><h2 className="font-serif text-lg font-bold text-foreground">{editingId ? "Revise and Resubmit" : "New Drive Proposal"}</h2></div>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-1.5 text-xs text-muted-foreground">University *
             <select value={form.university_id} disabled={Boolean(editingId)} onChange={(event) => setForm((value) => ({ ...value, university_id: event.target.value }))} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground">
@@ -448,24 +448,24 @@ export default function RecruiterDriveRequestsPage() {
         </div>
       </form>
 
-      <div className="mt-7 space-y-3">
-        <h2 className="font-medium">Request history</h2>
-        {requests.length === 0 ? <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">No campus-drive requests submitted yet.</div> : requests.map((request) => (
-          <article key={request.id} className="rounded-xl border border-border bg-surface p-5">
+      <div className="mt-8 space-y-4">
+        <h2 className="font-serif text-xl font-bold text-foreground">Request History</h2>
+        {requests.length === 0 ? <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center text-sm text-muted-foreground shadow-sharp">No campus-drive requests submitted yet.</div> : requests.map((request) => (
+          <article key={request.id} className="rounded-xl border border-border bg-card p-6 shadow-sharp transition-all hover:border-foreground/20">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{request.title}</h3><span className={`rounded-full px-2 py-0.5 text-xs capitalize ${STATUS_STYLE[request.status]}`}>{request.status.replace("_", " ")}</span></div>
+                <div className="flex flex-wrap items-center gap-2.5"><h3 className="font-serif text-lg font-bold text-foreground">{request.title}</h3><span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${STATUS_STYLE[request.status]}`}>{request.status.replace("_", " ")}</span></div>
                 <p className="mt-1 text-sm text-muted-foreground">{request.role} · {request.university_profiles?.name || "University"}{request.package_lpa ? ` · ₹${request.package_lpa} LPA` : ""}</p>
-                <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground"><span className="flex items-center gap-1"><CalendarRange className="h-3.5 w-3.5" />{request.drive_date || "Date to be decided"}</span><span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5" />{request.company_name}</span></div>
+                <div className="mt-2.5 flex flex-wrap gap-4 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><CalendarRange className="h-3.5 w-3.5 text-muted-foreground/80" />{request.drive_date || "Date to be decided"}</span><span className="flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-muted-foreground/80" />{request.company_name}</span></div>
                 {request.eligibility?.eligible_branches && request.eligibility.eligible_branches.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="mt-3 flex flex-wrap gap-1.5">
                     {request.eligibility.eligible_branches.map((b: string) => (
-                      <span key={b} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{b}</span>
+                      <span key={b} className="rounded-full bg-secondary border border-border px-2.5 py-0.5 text-xs text-secondary-foreground">{b}</span>
                     ))}
                   </div>
                 )}
-                {request.review_notes && <div className="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-100"><strong>Placement officer:</strong> {request.review_notes}</div>}
-                {request.placement_drive_id && <p className="mt-3 text-xs text-emerald-400">Approved and published to eligible students.</p>}
+                {request.review_notes && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-950"><strong>Placement officer feedback:</strong> {request.review_notes}</div>}
+                {request.placement_drive_id && <p className="mt-3 text-xs font-medium text-emerald-700">✓ Approved and published to eligible students.</p>}
               </div>
               <div className="flex gap-2">
                 {request.status === "changes_requested" && <Button size="sm" onClick={() => editRequest(request)}>Edit &amp; resubmit</Button>}

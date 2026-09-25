@@ -6,6 +6,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model_pro: str = "gemini-3.6-flash"
     gemini_model_flash: str = "gemini-3.5-flash"
+    gemini_model_fallback: str = "gemini-3.5-flash-lite"
 
     # ── JWT ───────────────────────────────────────────────
     jwt_secret: str = "changeme-jwt-secret"
@@ -60,7 +62,7 @@ class Settings(BaseSettings):
     @classmethod
     def parse_debug_flag(cls, value):
         """Accept standard log-level environment values without blocking startup."""
-        if isinstance(value, str) and value.strip().upper() in {"DEBUG", "INFO", "WARN", "WARNING", "ERROR"}:
+        if isinstance(value, str) and value.strip().upper() in {"DEBUG", "INFO", "WARN", "WARNING", "ERROR", "RELEASE"}:
             return value.strip().upper() == "DEBUG"
         return value
 
@@ -69,7 +71,7 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 900  # 15 min
 
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).resolve().parent.parent / ".env")
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "ignore"  # Silently ignore unknown env vars

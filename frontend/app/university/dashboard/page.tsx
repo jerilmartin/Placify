@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabase";
+import { cn } from "@/lib/utils";
+import { universitiesApi } from "@/lib/api";
+import { isDriveRegistrationClosed } from "@/lib/drive-status";
 import { useAuth } from "@/contexts/AuthContext";
 
 const PACKAGE_BANDS = [
@@ -16,24 +18,47 @@ const PACKAGE_BANDS = [
 ];
 
 const SECTOR_COLORS = [
-  "oklch(0.68 0.19 285)",
-  "oklch(0.72 0.14 235)",
-  "oklch(0.72 0.17 155)",
-  "oklch(0.80 0.16 75)",
-  "oklch(0.68 0.20 340)",
-  "oklch(0.65 0.18 310)",
+  "#800020",
+  "#0A192F",
+  "#D4AF37",
+  "#475569",
+  "#15803D",
+  "#8C6D23",
 ];
 
+interface DashboardDrive {
+  id: string;
+  status: string;
+  company_name: string;
+  package_lpa: number | null;
+  drive_date?: string | null;
+  registration_deadline?: string | null;
+  total_registered: number;
+  total_selected: number;
+  created_at?: string;
+}
+
+interface DashboardApplication {
+  drive_id: string;
+  student_id: string;
+  status: string;
+}
+
+interface DashboardStudent {
+  id: string;
+  course?: string | null;
+}
+
 // Normalise branch/course strings to canonical labels
-function normalizeBranch(course: string): string {
-  const c = (course || "").toLowerCase();
-  if (c.includes("computer") || c.includes("cse") || c.includes(" cs")) return "CSE";
-  if (c.includes("information") || c.includes(" it")) return "IT";
-  if (c.includes("electronics") || c.includes("ece") || c.includes("ec")) return "ECE";
-  if (c.includes("electrical") || c.includes("eee")) return "EEE";
-  if (c.includes("mechanical") || c.includes("mech")) return "Mech";
-  if (c.includes("civil")) return "Civil";
-  if (c.includes("ai") || c.includes("data science") || c.includes("machine")) return "AI/ML";
+function normalizeBranch(course?: string | null): string {
+  const c = (course || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (/\b(artificial intelligence|machine learning|data science|ai|ml)\b/.test(c)) return "AI/ML";
+  if (/\b(computer science|computer engineering|cse|cs)\b/.test(c)) return "CSE";
+  if (/\b(information technology|it)\b/.test(c)) return "IT";
+  if (/\b(electronics|ece|telecommunication)\b/.test(c)) return "ECE";
+  if (/\b(electrical|eee)\b/.test(c)) return "EEE";
+  if (/\b(mechanical|mech)\b/.test(c)) return "Mech";
+  if (/\bcivil\b/.test(c)) return "Civil";
   return "Other";
 }
 
@@ -41,11 +66,12 @@ export default function UniversityDashboardPage() {
   const { user } = useAuth();
   const [uniName, setUniName] = useState("Your University");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   // Stats
   const [stats, setStats] = useState({
     totalDrives: 0, activeDrives: 0,
-    totalRegistered: 0, totalSelected: 0,
+    totalRegistered: 0, totalApplications: 0, totalSelected: 0,
     totalStudents: 0,
   });
 
@@ -53,57 +79,29 @@ export default function UniversityDashboardPage() {
   const [packageDist, setPackageDist] = useState<{ r: string; n: number }[]>([]);
   const [sectorData, setSectorData] = useState<{ name: string; v: number; c: string }[]>([]);
   const [branchData, setBranchData] = useState<{ b: string; students: number; selected: number; avgPkg: number }[]>([]);
-  const [recentDrives, setRecentDrives] = useState<any[]>([]);
+  const [recentDrives, setRecentDrives] = useState<DashboardDrive[]>([]);
 
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      // 1. University profile
-      const { data: up } = await supabase
-        .from("university_profiles")
-        .select("id, name")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (up?.name) setUniName(up.name);
-      if (!up?.id) { setLoading(false); return; }
-
-      // 2. All drives for this university
-      const { data: drives } = await supabase
-        .from("placement_drives")
-        .select("id, status, company_name, package_lpa, drive_date, total_registered, total_selected")
-        .eq("university_id", up.id)
-        .order("created_at", { ascending: false });
-
-      const drivesArr = drives || [];
-      const drivesIds = drivesArr.map((d: any) => d.id);
-
-      // 3. Drive applications for this university's drives (with student info)
-      let allApps: any[] = [];
-      if (drivesIds.length > 0) {
-        const { data: apps } = await supabase
-          .from("drive_applications")
-          .select("drive_id, status, student_id, student_profiles(course, cgpa)")
-          .in("drive_id", drivesIds);
-        allApps = apps || [];
-      }
-
-      // 4. All students in this university (by name match)
-      const { data: students } = await supabase
-        .from("student_profiles")
-        .select("id, course, cgpa")
-        .eq("university_id", up.id);
-      const studentsArr = students || [];
+      try {
+      const { data } = await universitiesApi.getAnalytics();
+      setUniName(data.university_name || "Your University");
+       const drivesArr = (data.drives || []) as DashboardDrive[];
+       const allApps = (data.applications || []) as DashboardApplication[];
+       const studentsArr = (data.students || []) as DashboardStudent[];
 
       // ── Compute stats ──────────────────────────────────────────
-      const totalRegistered = new Set(allApps.map((application: any) => application.student_id)).size;
-      const totalSelected = new Set(allApps.filter((application: any) =>
+       const totalRegistered = new Set(allApps.map((application) => application.student_id)).size;
+       const totalSelected = new Set(allApps.filter((application) =>
         ["selected", "offered", "accepted", "placed"].includes((application.status || "").toLowerCase())
-      ).map((application: any) => application.student_id)).size;
+       ).map((application) => application.student_id)).size;
 
       setStats({
         totalDrives: drivesArr.length,
-        activeDrives: drivesArr.filter((d: any) => ["active", "upcoming"].includes(d.status)).length,
+        activeDrives: data.active_drives || 0,
         totalRegistered,
+        totalApplications: allApps.length,
         totalSelected,
         totalStudents: studentsArr.length,
       });
@@ -111,51 +109,46 @@ export default function UniversityDashboardPage() {
       // ── Package distribution from drives ────────────────────────
       const pkgBands = PACKAGE_BANDS.map(band => ({
         r: band.r,
-        n: drivesArr.filter((d: any) => {
-          const p = d.package_lpa || 0;
-          return p >= band.min && p < band.max;
+        n: drivesArr.filter((d) => {
+          const p = Number(d.package_lpa);
+          return p > 0 && p >= band.min && p < band.max;
         }).length,
       }));
       setPackageDist(pkgBands);
 
-      // ── Sector breakdown from company names ─────────────────────
-      // Infer sector from company name heuristic
-      const sectorMap: Record<string, number> = {};
-      drivesArr.forEach((d: any) => {
-        const co = (d.company_name || "").toLowerCase();
-        let sector = "Other";
-        if (["google", "microsoft", "amazon", "meta", "apple", "netflix", "uber"].some(k => co.includes(k))) sector = "Big Tech";
-        else if (["infosys", "tcs", "wipro", "cognizant", "accenture", "hcl"].some(k => co.includes(k))) sector = "IT Services";
-        else if (["goldman", "jpmorgan", "morgan", "deloitte", "kpmg", "ey", "bank"].some(k => co.includes(k))) sector = "Finance";
-        else if (["razorpay", "paytm", "stripe", "phonepe", "cred"].some(k => co.includes(k))) sector = "FinTech";
-        else if (["swiggy", "zomato", "ola", "byju", "meesho", "flipkart"].some(k => co.includes(k))) sector = "StartUp";
-        else sector = "Product";
-        sectorMap[sector] = (sectorMap[sector] || 0) + 1;
+      // ── Recruiting companies (actual drive data, no inferred sectors) ──
+      const companyMap: Record<string, number> = {};
+      drivesArr.forEach((d) => {
+        const company = (d.company_name || "Unknown recruiter").trim();
+        companyMap[company] = (companyMap[company] || 0) + 1;
       });
-      const total = Object.values(sectorMap).reduce((a, b) => a + b, 1);
-      const sectors = Object.entries(sectorMap).map(([name, count], i) => ({
+      const companies = Object.entries(companyMap).sort((a, b) => b[1] - a[1]);
+      const shownCompanies = companies.slice(0, 5);
+      if (companies.length > 5) shownCompanies.push(["Other companies", companies.slice(5).reduce((sum, [, count]) => sum + count, 0)]);
+      const sectors = shownCompanies.map(([name, count], i) => ({
         name,
-        v: Math.round((count / total) * 100),
+        v: count,
         c: SECTOR_COLORS[i % SECTOR_COLORS.length],
-      })).sort((a, b) => b.v - a.v).slice(0, 6);
-      setSectorData(sectors.length > 0 ? sectors : [{ name: "No data yet", v: 100, c: SECTOR_COLORS[0] }]);
+      }));
+      setSectorData(sectors);
 
       // ── Branch breakdown from student profiles ──────────────────
       const branchMap: Record<string, { students: number; selectedIds: Set<string>; packages: Map<string, number> }> = {};
-      studentsArr.forEach((s: any) => {
+      const studentsById = new Map(studentsArr.map((student) => [student.id, student]));
+      studentsArr.forEach((s) => {
         const b = normalizeBranch(s.course);
         if (!branchMap[b]) branchMap[b] = { students: 0, selectedIds: new Set(), packages: new Map() };
         branchMap[b].students += 1;
       });
       // Cross-ref with applications
-      allApps.forEach((a: any) => {
-        const sp = a.student_profiles;
+      allApps.forEach((a) => {
+        const sp = studentsById.get(a.student_id);
         if (!sp) return;
         const b = normalizeBranch(sp.course);
         if (!branchMap[b]) branchMap[b] = { students: 0, selectedIds: new Set(), packages: new Map() };
         if (["selected", "offered", "accepted", "placed"].includes((a.status || "").toLowerCase())) {
           branchMap[b].selectedIds.add(a.student_id);
-          const drive = drivesArr.find((d: any) => d.id === a.drive_id);
+          const drive = drivesArr.find((d) => d.id === a.drive_id);
           if (drive?.package_lpa) branchMap[b].packages.set(a.student_id, drive.package_lpa);
         }
       });
@@ -173,8 +166,13 @@ export default function UniversityDashboardPage() {
       setBranchData(branchRows);
 
       // ── Recent drives ───────────────────────────────────────────
-      setRecentDrives(drivesArr.slice(0, 5));
-      setLoading(false);
+      setRecentDrives([...drivesArr].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 5));
+      } catch (error) {
+        console.error("Failed to load university analytics:", error);
+        setLoadError("Could not load verified placement counts. Please refresh or check the backend connection.");
+      } finally {
+        setLoading(false);
+      }
     };
     load();
   }, [user]);
@@ -185,6 +183,10 @@ export default function UniversityDashboardPage() {
         <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
       </div>
     );
+  }
+
+  if (loadError) {
+    return <div className="mx-auto max-w-[1400px] px-4 py-8 text-sm text-destructive">{loadError}</div>;
   }
 
   const placePct = stats.totalRegistered > 0
@@ -198,8 +200,8 @@ export default function UniversityDashboardPage() {
           <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
             Placement Cell · {uniName}
           </div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-[28px]">
-            Placement Dashboard — AY 2025–26
+          <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-foreground">
+            Placement Dashboard · All drives
           </h1>
         </div>
         <div className="flex gap-2">
@@ -212,15 +214,15 @@ export default function UniversityDashboardPage() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {[
-          { l: "Total Drives", v: String(stats.totalDrives), d: `${stats.activeDrives} active/upcoming` },
-          { l: "Registered Students", v: String(stats.totalRegistered), d: "across all drives" },
-          { l: "Selected / Placed", v: String(stats.totalSelected), d: "students confirmed" },
-          { l: "Placement Rate", v: placePct > 0 ? `${placePct}%` : "—", d: "of registered students" },
-          { l: "Total Students", v: String(stats.totalStudents), d: "in student database" },
+          { l: "Total Drives", v: String(stats.totalDrives), d: `${stats.activeDrives} active/upcoming`, highlight: false },
+          { l: "Registered Students", v: String(stats.totalRegistered), d: `${stats.totalApplications} applications across all drives`, highlight: false },
+          { l: "Drive Selections", v: String(stats.totalSelected), d: "unique students with selection status", highlight: false },
+          { l: "Selection Rate", v: stats.totalRegistered > 0 ? `${placePct}%` : "—", d: "of drive applicants", highlight: true },
+          { l: "Total Students", v: String(stats.totalStudents), d: "linked to this university", highlight: false },
         ].map((k) => (
-          <div key={k.l} className="rounded-xl border border-border bg-surface p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{k.l}</div>
-            <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{k.v}</div>
+          <div key={k.l} className="rounded-xl border border-border bg-card p-4 shadow-sharp">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">{k.l}</div>
+            <div className={cn("mt-2 text-2xl font-bold tracking-tight tabular-nums font-serif", k.highlight ? "text-[#D4AF37]" : "text-foreground")}>{k.v}</div>
             <div className="mt-1 text-[11px] text-muted-foreground">{k.d}</div>
           </div>
         ))}
@@ -228,49 +230,51 @@ export default function UniversityDashboardPage() {
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         {/* Package distribution chart */}
-        <div className="lg:col-span-2 rounded-xl border border-border bg-surface p-5">
-          <h3 className="text-[14px] font-medium">Package distribution</h3>
+        <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5 shadow-sharp">
+          <h3 className="font-serif text-base font-semibold text-foreground">Package distribution</h3>
           <p className="text-[12px] text-muted-foreground">Number of drives by CTC band</p>
           <div className="mt-3 h-[240px]">
             {packageDist.some(b => b.n > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={packageDist} margin={{ left: -18 }}>
-                  <CartesianGrid stroke="oklch(1 0 0 / 0.05)" vertical={false} />
-                  <XAxis dataKey="r" stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} width={38} />
-                  <Tooltip contentStyle={{ background: "oklch(0.19 0.017 270)", border: "1px solid oklch(1 0 0 / 0.1)", borderRadius: 10, fontSize: 12 }} />
-                  <Bar dataKey="n" fill="oklch(0.68 0.19 285)" radius={[6, 6, 0, 0]} name="Drives" />
+                  <CartesianGrid stroke="#E5E0D8" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="r" stroke="#64748B" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#64748B" fontSize={11} tickLine={false} axisLine={false} width={38} />
+                  <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid #E5E0D8", borderRadius: 8, color: "#1C1917", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }} />
+                  <Bar dataKey="n" fill="#800020" radius={[4, 4, 0, 0]} name="Drives" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
-                No drive data yet — <Link href="/university/drives" className="ml-1 text-primary hover:underline">create a drive</Link>
+                No drive data yet — <Link href="/university/drives" className="ml-1 text-[#800020] hover:underline font-medium">create a drive</Link>
               </div>
             )}
           </div>
         </div>
 
-        {/* Sector breakdown */}
-        <div className="rounded-xl border border-border bg-surface p-5">
-          <h3 className="text-[14px] font-medium">Sector breakdown</h3>
-          <p className="text-[12px] text-muted-foreground">By recruiting company type</p>
+        {/* Recruiting companies */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sharp">
+          <h3 className="font-serif text-base font-semibold text-foreground">Recruiting companies</h3>
+          <p className="text-[12px] text-muted-foreground">Drives by company</p>
           <div className="mt-3 h-[200px]">
+            {sectorData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={sectorData} dataKey="v" nameKey="name" innerRadius={52} outerRadius={82} paddingAngle={3}>
-                  {sectorData.map((s) => <Cell key={s.name} fill={s.c} stroke="none" />)}
+                  {sectorData.map((s) => <Cell key={s.name} fill={s.c} stroke="#FFFFFF" strokeWidth={2} />)}
                 </Pie>
-                <Tooltip contentStyle={{ background: "oklch(0.19 0.017 270)", border: "1px solid oklch(1 0 0 / 0.1)", borderRadius: 10, fontSize: 12 }} />
+                <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid #E5E0D8", borderRadius: 8, color: "#1C1917", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }} />
               </PieChart>
             </ResponsiveContainer>
+            ) : <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No drives yet</div>}
           </div>
           <ul className="mt-2 space-y-1 text-[12px]">
             {sectorData.map((s) => (
               <li key={s.name} className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full shrink-0" style={{ background: s.c }} /> {s.name}
+                <span className="flex items-center gap-2 text-foreground">
+                  <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: s.c }} /> {s.name}
                 </span>
-                <span className="tabular-nums text-muted-foreground">{s.v}%</span>
+                <span className="tabular-nums font-medium text-foreground">{s.v} {s.v === 1 ? "drive" : "drives"}</span>
               </li>
             ))}
           </ul>
@@ -278,10 +282,10 @@ export default function UniversityDashboardPage() {
       </div>
 
       {/* Branch breakdown table */}
-      <div className="mt-4 rounded-xl border border-border bg-surface">
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h3 className="text-[14px] font-medium">Branch-wise placement</h3>
-          <div className="text-[12px] text-muted-foreground">From registered student profiles</div>
+      <div className="mt-4 rounded-xl border border-border bg-card shadow-sharp overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border bg-muted/40 px-5 py-3">
+          <h3 className="font-serif text-base font-semibold text-foreground">Branch-wise drive selections</h3>
+          <div className="text-[12px] text-muted-foreground">From linked student profiles and drive applications</div>
         </div>
         <div className="overflow-x-auto">
           {branchData.length === 0 ? (
@@ -290,30 +294,30 @@ export default function UniversityDashboardPage() {
             </div>
           ) : (
             <table className="min-w-full text-[13px]">
-              <thead className="bg-elevated/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
                 <tr>
-                  <th className="px-5 py-2.5 text-left">Branch</th>
-                  <th className="px-3 py-2.5 text-left">Students</th>
-                  <th className="px-3 py-2.5 text-left">Selected</th>
-                  <th className="px-3 py-2.5 text-left">Placement %</th>
-                  <th className="px-3 py-2.5 text-left">Avg. Package</th>
-                  <th className="px-3 py-2.5 text-left">Progress</th>
+                  <th className="px-5 py-3 text-left">Branch</th>
+                  <th className="px-3 py-3 text-left">Students</th>
+                  <th className="px-3 py-3 text-left">Selected</th>
+                  <th className="px-3 py-3 text-left">Selection %</th>
+                  <th className="px-3 py-3 text-left">Avg. Advertised CTC</th>
+                  <th className="px-3 py-3 text-left">Progress</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {branchData.map((b) => {
                   const pct = b.students > 0 ? Math.round((b.selected / b.students) * 100) : 0;
                   return (
-                    <tr key={b.b} className="hover:bg-elevated/60">
-                      <td className="px-5 py-3 font-medium">{b.b}</td>
-                      <td className="px-3 py-3 tabular-nums">{b.students}</td>
-                      <td className="px-3 py-3 tabular-nums">{b.selected}</td>
-                      <td className="px-3 py-3 tabular-nums">{pct}%</td>
-                      <td className="px-3 py-3 tabular-nums">{b.avgPkg > 0 ? `₹${b.avgPkg}L` : "—"}</td>
+                    <tr key={b.b} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-5 py-3 font-medium text-foreground">{b.b}</td>
+                      <td className="px-3 py-3 tabular-nums text-muted-foreground">{b.students}</td>
+                      <td className="px-3 py-3 tabular-nums text-muted-foreground">{b.selected}</td>
+                      <td className="px-3 py-3 tabular-nums font-semibold text-[#D4AF37]">{pct}%</td>
+                      <td className="px-3 py-3 tabular-nums font-medium text-foreground">{b.avgPkg > 0 ? `₹${b.avgPkg}L` : "—"}</td>
                       <td className="px-3 py-3">
-                        <div className="h-1.5 w-32 overflow-hidden rounded-full bg-elevated">
+                        <div className="h-2 w-32 overflow-hidden rounded-full bg-muted">
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-primary to-[oklch(0.55_0.20_235)]"
+                            className="h-full rounded-full bg-[#800020] transition-all duration-500"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -329,28 +333,29 @@ export default function UniversityDashboardPage() {
 
       {/* Recent drives */}
       {recentDrives.length > 0 && (
-        <div className="mt-4 rounded-xl border border-border bg-surface">
-          <div className="flex items-center justify-between border-b border-border px-5 py-3">
-            <h3 className="text-[14px] font-medium">Recent drives</h3>
+        <div className="mt-4 rounded-xl border border-border bg-card shadow-sharp overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border bg-muted/40 px-5 py-3">
+            <h3 className="font-serif text-base font-semibold text-foreground">Recent drives</h3>
             <Button variant="ghost" size="sm" asChild>
               <Link href="/university/drives">View all →</Link>
             </Button>
           </div>
           <div className="divide-y divide-border">
-            {recentDrives.map((d: any) => (
-              <div key={d.id} className="flex items-center justify-between px-5 py-3">
+            {recentDrives.map((d) => (
+              <div key={d.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-muted/30 transition-colors">
                 <div>
-                  <div className="text-[13px] font-medium">{d.company_name}</div>
-                  <div className="text-[11px] text-muted-foreground">
+                  <div className="text-[13.5px] font-medium text-foreground">{d.company_name}</div>
+                  <div className="text-[11.5px] text-muted-foreground">
                     {d.total_registered || 0} registered · {d.total_selected || 0} selected
                     {d.package_lpa ? ` · ₹${d.package_lpa}L` : ""}
                   </div>
                 </div>
-                <span className={`text-[11px] capitalize rounded-full px-2.5 py-0.5 font-medium ${
-                  d.status === "active" ? "bg-success/15 text-success" :
-                  d.status === "upcoming" ? "bg-primary/15 text-primary" :
-                  "bg-muted text-muted-foreground"
-                }`}>{d.status}</span>
+                <span className={`text-[11px] capitalize rounded-md px-2.5 py-1 font-medium border ${
+                  isDriveRegistrationClosed(d) ? "bg-muted text-muted-foreground border-border" :
+                  d.status === "active" ? "bg-emerald-50 text-emerald-800 border-emerald-200" :
+                  d.status === "upcoming" ? "bg-[#0A192F]/10 text-[#0A192F] border-[#0A192F]/20" :
+                  "bg-muted text-muted-foreground border-border"
+                }`}>{isDriveRegistrationClosed(d) ? "Applications closed" : d.status}</span>
               </div>
             ))}
           </div>
