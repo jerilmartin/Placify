@@ -10,6 +10,7 @@ from app.models.user import UserCreate, UserLogin, UserResponse, TokenResponse, 
 from app.database import get_supabase_anon, get_supabase
 from app.middleware.auth import get_current_user, resolve_user_role
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -20,12 +21,12 @@ security = HTTPBearer(auto_error=False)
 async def register(user_data: UserCreate):
     """
     Register a new user.
-    Supports roles: student, recruiter, university, mentor
+    Supports public roles: student, recruiter, university
     """
     supabase_anon = get_supabase_anon()
     supabase_admin = get_supabase()  # service_role key — bypasses RLS
     requested_role = user_data.role.value if hasattr(user_data.role, "value") else user_data.role
-    if requested_role not in {"student", "recruiter", "university", "mentor"}:
+    if requested_role not in {"student", "recruiter", "university"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This role cannot be created through public registration",
@@ -208,7 +209,7 @@ def _insert_profile(
     role: str,
     full_name: str,
     email: str,
-    university: str | None = None,
+    university: Optional[str] = None,
 ):
     """
     Insert or repair a profile row using the service-role client.

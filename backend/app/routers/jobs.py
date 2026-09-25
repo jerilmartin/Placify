@@ -5,8 +5,10 @@ from app.models.job import JobCreate, JobUpdate, JobResponse, JobMatchResponse
 from app.middleware.auth import get_current_user, require_recruiter, require_student
 from app.database import get_supabase
 from app.services.matching_service import compute_job_matches
+from app.services.eligibility_service import is_eligible_for_drive
 import logging
 import uuid
+from datetime import date
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,6 +27,13 @@ async def list_jobs(
     supabase = get_supabase()
     try:
         query = supabase.table("jobs").select("*").eq("status", "active")
+        if current_user.role == "student":
+            student_rows = (
+                supabase.table("student_profiles").select("university_id")
+                .eq("user_id", str(current_user.id)).limit(1).execute()
+            ).data or []
+            university_id = student_rows[0].get("university_id") if student_rows else None
+            query = query.or_(f"university_id.is.null,university_id.eq.{university_id}") if university_id else query.is_("university_id", "null")
         if skill:
             query = query.contains("skills_required", [skill])
         if location:
@@ -61,15 +70,8 @@ async def list_placement_drives(current_user=Depends(require_student)):
         if not university_id:
             all_unis = (supabase.table("university_profiles").select("id,name").execute()).data or []
             stu_uni = (student.get("university") or "").strip().casefold()
-            matched_uni = None
-            if stu_uni:
-                for u in all_unis:
-                    u_name = (u.get("name") or "").strip().casefold()
-                    if stu_uni in u_name or u_name in stu_uni:
-                        matched_uni = u
-                        break
-            if not matched_uni and len(all_unis) == 1:
-                matched_uni = all_unis[0]
+            matches = [u for u in all_unis if stu_uni and (u.get("name") or "").strip().casefold() == stu_uni]
+            matched_uni = matches[0] if len(matches) == 1 else None
 
             if matched_uni:
                 university_id = matched_uni["id"]
@@ -81,12 +83,18 @@ async def list_placement_drives(current_user=Depends(require_student)):
                 except Exception as ue:
                     logger.warning(f"Could not persist student university link: {ue}")
 
+        if not university_id:
+            return []
+
         # Query placement drives for this university
         query = supabase.table("placement_drives").select("*").in_("status", ["upcoming", "active"])
-        if university_id:
-            query = query.eq("university_id", university_id)
+        query = query.eq("university_id", university_id)
         drives_res = query.order("created_at", desc=True).execute()
-        drives = drives_res.data or []
+        today = date.today().isoformat()
+        drives = [
+            drive for drive in (drives_res.data or [])
+            if (drive.get("registration_deadline") or drive.get("drive_date") or today) >= today
+        ]
 
         # Get already applied drive IDs for this student
         applied_ids = set()
@@ -105,6 +113,47 @@ async def list_placement_drives(current_user=Depends(require_student)):
     except Exception as e:
         logger.error(f"Failed to fetch placement drives: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch placement drives")
+
+
+@router.post("/drives/{drive_id}/apply", status_code=201)
+async def apply_to_drive(drive_id: uuid.UUID, current_user=Depends(require_student)):
+    """Register using current persisted profile values, not a browser snapshot."""
+    supabase = get_supabase()
+    try:
+        profiles = supabase.table("student_profiles").select("*") \
+            .eq("user_id", str(current_user.id)).limit(1).execute().data or []
+        if not profiles:
+            raise HTTPException(status_code=404, detail="Complete your profile first")
+        student = profiles[0]
+        drives = supabase.table("placement_drives").select("*") \
+            .eq("id", str(drive_id)).limit(1).execute().data or []
+        if not drives:
+            raise HTTPException(status_code=404, detail="Placement drive not found")
+        drive = drives[0]
+        if not student.get("university_id") or student["university_id"] != drive.get("university_id"):
+            raise HTTPException(status_code=403, detail="This drive belongs to another university")
+        if drive.get("status") not in {"upcoming", "active"}:
+            raise HTTPException(status_code=400, detail="This drive is not accepting applications")
+        deadline = drive.get("registration_deadline") or drive.get("drive_date")
+        if deadline and date.fromisoformat(str(deadline)[:10]) < date.today():
+            raise HTTPException(status_code=400, detail="Registration for this drive has closed")
+        if not is_eligible_for_drive(student, drive.get("eligibility") or {}):
+            raise HTTPException(status_code=400, detail="Your saved profile does not meet this drive's eligibility criteria. Refresh jobs after updating your profile.")
+        existing = supabase.table("drive_applications").select("id") \
+            .eq("drive_id", str(drive_id)).eq("student_id", student["id"]).limit(1).execute().data or []
+        if existing:
+            raise HTTPException(status_code=409, detail="Already registered for this drive")
+        result = supabase.table("drive_applications").insert({
+            "drive_id": str(drive_id), "student_id": student["id"], "status": "registered",
+        }).execute()
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Drive registration returned no data")
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to apply to drive %s: %s", drive_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to register for drive") from exc
 
 
 

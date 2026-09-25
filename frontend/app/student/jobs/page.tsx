@@ -10,7 +10,22 @@ import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
-import { aiApi, resumesApi, jobsApi } from "@/lib/api";
+import { aiApi, resumesApi, jobsApi, applicationsApi } from "@/lib/api";
+import { matchesBranch } from "@/lib/eligibility";
+
+interface DirectJob {
+  id: string;
+  title: string;
+  company: string;
+  location: string | null;
+  package_lpa: number | null;
+  deadline: string | null;
+  job_type: string | null;
+  skills_required: string[] | null;
+  min_cgpa: number | null;
+  eligible_branches: string[] | null;
+  university_id: string | null;
+}
 
 interface Drive {
   id: string;
@@ -27,6 +42,7 @@ interface Drive {
     min_cgpa?: number;
     max_backlogs?: number;
     eligible_branches?: string[];
+    graduation_year?: number;
   };
 }
 
@@ -50,46 +66,14 @@ interface StudentProfile {
   cgpa: number | null;
   active_backlogs: number | null;
   course: string | null;
+  graduation_year: number | null;
   university: string | null;
+  university_id?: string | null;
 }
 
 interface EligibilityResult {
   eligible: boolean;
   reason: string;
-}
-
-const BRANCH_ALIASES: Record<string, string[]> = {
-  cs: ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
-  cse: ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
-  "computer science": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
-  it: ["it", "information technology", "info tech"],
-  "information technology": ["it", "information technology", "info tech"],
-  ece: ["ece", "electronics", "ec", "telecommunication", "communication"],
-  electronics: ["ece", "electronics", "ec", "telecommunication", "communication"],
-  eee: ["eee", "electrical", "ee"],
-  electrical: ["eee", "electrical", "ee"],
-  mech: ["mech", "mechanical"],
-  mechanical: ["mech", "mechanical"],
-  civil: ["civil"],
-  ai: ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
-  ml: ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
-  "data science": ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
-};
-
-function matchesBranch(studentCourse: string, requiredBranch: string): boolean {
-  const courseNorm = studentCourse.toLowerCase().trim();
-  const branchNorm = requiredBranch.toLowerCase().trim();
-
-  // Direct substring check
-  if (courseNorm.includes(branchNorm) || branchNorm.includes(courseNorm)) return true;
-
-  // Synonym check
-  const aliases = BRANCH_ALIASES[branchNorm];
-  if (aliases) {
-    return aliases.some((alias) => courseNorm.includes(alias));
-  }
-
-  return false;
 }
 
 function checkEligibility(drive: Drive, profile: StudentProfile | null): EligibilityResult {
@@ -105,6 +89,9 @@ function checkEligibility(drive: Drive, profile: StudentProfile | null): Eligibi
     const backlogs = profile.active_backlogs ?? 0;
     if (backlogs > eligibility.max_backlogs) return { eligible: false, reason: `Max ${eligibility.max_backlogs} backlog(s) allowed (yours: ${backlogs})` };
   }
+  if (eligibility.graduation_year != null && profile.graduation_year !== eligibility.graduation_year) {
+    return { eligible: false, reason: `Class of ${eligibility.graduation_year} required${profile.graduation_year ? ` (yours: ${profile.graduation_year})` : " — add your graduation year in profile"}` };
+  }
   if (eligibility.eligible_branches?.length) {
     const course = profile.course || "";
     const branchMatch = eligibility.eligible_branches.some((b) => matchesBranch(course, b));
@@ -116,6 +103,8 @@ function checkEligibility(drive: Drive, profile: StudentProfile | null): Eligibi
 export default function JobsPage() {
   const { user } = useAuth();
   const [drives, setDrives] = useState<Drive[]>([]);
+  const [directJobs, setDirectJobs] = useState<DirectJob[]>([]);
+  const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set());
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -142,7 +131,7 @@ export default function JobsPage() {
       // Load student profile (own row, always visible)
       const { data: sp } = await supabase
         .from("student_profiles")
-        .select("id, cgpa, active_backlogs, course, university")
+        .select("id, cgpa, active_backlogs, course, graduation_year, university, university_id")
         .eq("user_id", user.id)
         .maybeSingle();
       setProfile(sp);
@@ -158,6 +147,17 @@ export default function JobsPage() {
         console.error("Failed to load placement drives:", err);
       }
 
+      try {
+        const [jobsResult, applicationsResult] = await Promise.all([jobsApi.list(), applicationsApi.myApplications()]);
+        setDirectJobs((jobsResult.data || []).filter((job: DirectJob) =>
+          (!job.university_id || job.university_id === sp?.university_id) &&
+          (!job.deadline || job.deadline >= new Date().toISOString().slice(0, 10))
+        ));
+        setAppliedJobs(new Set((applicationsResult.data || []).filter((item: { status: string }) => item.status !== "withdrawn").map((item: { job_id: string }) => item.job_id)));
+      } catch (err) {
+        console.error("Failed to load direct jobs:", err);
+      }
+
       setLoading(false);
 
       // Load student's uploaded resumes for match analysis
@@ -167,6 +167,12 @@ export default function JobsPage() {
       }).catch(() => {});
     };
     load();
+    window.addEventListener("placify:profile-updated", load);
+    window.addEventListener("focus", load);
+    return () => {
+      window.removeEventListener("placify:profile-updated", load);
+      window.removeEventListener("focus", load);
+    };
   }, [user]);
 
 
@@ -197,8 +203,9 @@ export default function JobsPage() {
     try {
       const res = await aiApi.resumeVsJob(selectedResumeId, matchDrive.id);
       setMatchResult(res.data);
-    } catch {
-      showToast("error", "Resume analysis failed — ensure the backend is running");
+    } catch (error: unknown) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      showToast("error", detail || "Resume analysis failed — ensure the backend is running");
     } finally {
       setMatchLoading(false);
     }
@@ -207,19 +214,41 @@ export default function JobsPage() {
   const applyToDrive = async (drive: Drive) => {
     if (!profile?.id) { showToast("error", "Complete your profile first to apply"); return; }
     setApplying(drive.id);
-    const { error } = await supabase.from("drive_applications").insert({
-      drive_id: drive.id,
-      student_id: profile.id,
-      status: "registered",
-    });
-    setApplying(null);
-    if (error) {
-      showToast("error", error.message || "Failed to apply");
-    } else {
+    try {
+      await jobsApi.applyToDrive(drive.id);
       setApplied((prev) => new Set([...prev, drive.id]));
       showToast("success", `Applied to ${drive.company_name}!`);
+    } catch (error: unknown) {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      showToast("error", detail || "Failed to apply to this drive");
+    } finally {
+      setApplying(null);
     }
   };
+
+  const applyToJob = async (job: DirectJob) => {
+    setApplying(job.id);
+    try {
+      await applicationsApi.apply(job.id);
+      setAppliedJobs((prev) => new Set([...prev, job.id]));
+      showToast("success", `Applied to ${job.company}`);
+    } catch (error: unknown) {
+      const response = error as { response?: { data?: { detail?: string } } };
+      showToast("error", response.response?.data?.detail || "Could not apply to this job");
+    } finally {
+      setApplying(null);
+    }
+  };
+
+  const jobEligibility = (job: DirectJob): EligibilityResult => {
+    if (!profile) return { eligible: false, reason: "Complete your profile first" };
+    if (job.university_id && job.university_id !== profile.university_id) return { eligible: false, reason: "For another university" };
+    if (job.min_cgpa != null && (profile.cgpa ?? 0) < job.min_cgpa) return { eligible: false, reason: `Min CGPA ${job.min_cgpa} required` };
+    if (job.eligible_branches?.length && !job.eligible_branches.some((branch) => matchesBranch(profile.course || "", branch))) return { eligible: false, reason: "Branch not eligible" };
+    return { eligible: true, reason: "" };
+  };
+
+  const filteredJobs = directJobs.filter((job) => !search || `${job.title} ${job.company} ${job.location || ""}`.toLowerCase().includes(search.toLowerCase()));
 
   const filtered = drives.filter((d) => {
     const q = search.toLowerCase();
@@ -240,27 +269,33 @@ export default function JobsPage() {
         </div>
       )}
 
-      <div className="mb-6 flex items-end justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Placement Drives</h1>
+          <h1 className="font-display text-2xl font-medium tracking-tight md:text-[30px] text-foreground">Opportunities</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {filtered.length} open drive{filtered.length !== 1 ? "s" : ""} · eligibility checked against your profile
+            {filtered.length} open drive{filtered.length !== 1 ? "s" : ""} · {filteredJobs.length} direct job{filteredJobs.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Button onClick={findBestMatches} disabled={ranking} className="gap-2">
+        <Button onClick={findBestMatches} disabled={ranking} className="gap-2 bg-primary text-primary-foreground hover:bg-[#660019] shadow-xs">
           {ranking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          Find best matches
+          Find Best Matches
         </Button>
       </div>
 
       {rankedJobs.length > 0 && (
-        <div className="mb-6 rounded-xl border border-primary/25 bg-primary/5 p-4">
-          <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-primary">Ranked direct-hiring opportunities</div>
-          <div className="grid gap-2 md:grid-cols-2">
+        <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-sharp">
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-primary">Ranked Direct Opportunities</div>
+          <div className="grid gap-2.5 md:grid-cols-2">
             {rankedJobs.slice(0, 6).map((match) => (
-              <div key={match.job_id || match.id} className="rounded-lg border border-border bg-background p-3">
-                <div className="flex items-start justify-between gap-3"><div><div className="font-medium">{match.job?.title || "Open role"}</div><div className="text-xs text-muted-foreground">{match.job?.company}</div></div><Badge>{match.match_score}%</Badge></div>
-                <p className="mt-2 text-xs text-muted-foreground">{match.match_reason}</p>
+              <div key={match.job_id || match.id} className="rounded border border-border bg-background p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-display font-semibold text-foreground text-sm">{match.job?.title || "Open role"}</div>
+                    <div className="text-xs text-muted-foreground">{match.job?.company}</div>
+                  </div>
+                  <Badge variant="gold">{match.match_score}%</Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{match.match_reason}</p>
               </div>
             ))}
           </div>
@@ -268,12 +303,12 @@ export default function JobsPage() {
       )}
 
       {/* Search */}
-      <div className="mb-6 flex items-center gap-2 rounded-xl border border-border bg-surface p-2">
+      <div className="mb-6 flex items-center gap-2 rounded-lg border border-border bg-card p-2 shadow-sharp">
         <div className="flex flex-1 items-center gap-2 px-2">
           <Search className="h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search companies, roles, locations…"
-            className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+            placeholder="Search companies, roles, locations, or branches…"
+            className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 text-foreground"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -282,14 +317,18 @@ export default function JobsPage() {
 
       {/* Eligibility hint */}
       {!profile && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-[13px] text-warning">
-          <Info className="h-4 w-4 shrink-0" />
-          Complete your student profile to see eligibility status for each drive.
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 text-[13px] text-foreground">
+          <Info className="h-4 w-4 text-warning shrink-0" />
+          Complete your student profile to see automatic eligibility status for each drive.
         </div>
       )}
 
+      {filteredJobs.length > 0 && <section className="mb-8" aria-label="Direct jobs"><h2 className="mb-3 font-display text-xl font-semibold">Direct openings</h2><div className="grid gap-3 md:grid-cols-2">{filteredJobs.map((job) => { const eligibility = jobEligibility(job); const isApplied = appliedJobs.has(job.id); return <article key={job.id} className="rounded-lg border border-border bg-card p-5 shadow-sharp"><div className="flex items-start justify-between gap-3"><div><h3 className="font-display text-base font-semibold">{job.title}</h3><p className="mt-1 text-sm text-muted-foreground">{job.company} · {job.location || "Location flexible"}</p></div>{isApplied && <Badge className="bg-success/10 text-success">Applied</Badge>}</div><div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground"><span>{job.job_type?.replace("_", " ") || "Full-time"}</span>{job.package_lpa != null && <span>· ₹{job.package_lpa} LPA</span>}{job.deadline && <span>· Apply by {new Date(`${job.deadline}T00:00:00`).toLocaleDateString("en-IN")}</span>}</div><div className="mt-3 flex flex-wrap gap-1.5">{job.skills_required?.slice(0, 4).map((skill) => <span key={skill} className="rounded border border-border bg-muted/40 px-2 py-0.5 text-[11px]">{skill}</span>)}</div><div className="mt-4 flex items-center justify-between gap-3">{!eligibility.eligible && <span className="text-xs text-destructive">{eligibility.reason}</span>}<Button size="sm" className="ml-auto" disabled={isApplied || !eligibility.eligible || applying === job.id} onClick={() => applyToJob(job)}>{isApplied ? "Applied" : applying === job.id ? "Applying…" : "Apply to job"}</Button></div></article>; })}</div></section>}
+
+      <h2 className="mb-3 font-display text-xl font-semibold">Campus placement drives</h2>
+
       {filtered.length === 0 ? (
-        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border">
+        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-card p-8">
           <Building2 className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-[14px] text-muted-foreground">
             {profile?.university ? "No active placement drives are available for your university." : "Add your university to see campus placement drives."}
@@ -309,33 +348,36 @@ export default function JobsPage() {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, delay: i * 0.03 }}
-                className={`rounded-xl border bg-surface p-5 transition-colors ${eligible ? "border-border hover:border-primary/30" : "border-border opacity-80"}`}
+                className={`rounded-lg border bg-card p-5 shadow-sharp transition-colors ${eligible ? "border-border hover:border-primary/40" : "border-border opacity-80"}`}
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-[15px] font-medium">{drive.company_name}</h3>
+                      <h3 className="font-display text-[17px] font-semibold text-foreground">{drive.company_name}</h3>
                       {isApplied && <Badge className="bg-success/10 text-success text-[10.5px]">Applied</Badge>}
-                      {!eligible && <Badge className="bg-muted text-muted-foreground text-[10.5px]">Ineligible</Badge>}
+                      {!eligible && <Badge variant="secondary" className="text-[10.5px]">Ineligible</Badge>}
                     </div>
                     {drive.role && <p className="mt-0.5 text-[13px] text-muted-foreground">{drive.title} · {drive.role}</p>}
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
+                    <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
                       {drive.location && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{drive.location}</span>}
                       {drive.drive_date && <span className="flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{new Date(drive.drive_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>}
-                      {drive.package_lpa && <span className="flex items-center gap-1"><Trophy className="h-3.5 w-3.5" />₹{drive.package_lpa} LPA</span>}
+                      {drive.package_lpa && <span className="flex items-center gap-1 font-semibold text-foreground"><Trophy className="h-3.5 w-3.5 text-[#D4AF37]" />₹{drive.package_lpa} LPA</span>}
                     </div>
 
                     {/* Eligibility criteria chips */}
                     {drive.eligibility && Object.keys(drive.eligibility).length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
                         {drive.eligibility.min_cgpa != null && (
-                          <span className="rounded-md bg-elevated px-2 py-0.5 text-[11px] text-muted-foreground">Min CGPA: {drive.eligibility.min_cgpa}</span>
+                          <span className="rounded border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Min CGPA: {drive.eligibility.min_cgpa}</span>
                         )}
                         {drive.eligibility.max_backlogs != null && (
-                          <span className="rounded-md bg-elevated px-2 py-0.5 text-[11px] text-muted-foreground">Max Backlogs: {drive.eligibility.max_backlogs}</span>
+                          <span className="rounded border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Max Backlogs: {drive.eligibility.max_backlogs}</span>
+                        )}
+                        {drive.eligibility.graduation_year != null && (
+                          <span className="rounded border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Class of {drive.eligibility.graduation_year}</span>
                         )}
                         {drive.eligibility.eligible_branches?.map((b) => (
-                          <span key={b} className="rounded-md bg-elevated px-2 py-0.5 text-[11px] text-muted-foreground">{b}</span>
+                          <span key={b} className="rounded border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{b}</span>
                         ))}
                       </div>
                     )}
@@ -352,15 +394,15 @@ export default function JobsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
+                      className="gap-1.5"
                       onClick={() => openMatchModal(drive)}
                     >
-                      <Sparkles className="h-3.5 w-3.5" /> Resume match
+                      <Sparkles className="h-3.5 w-3.5 text-primary" /> Resume match
                     </Button>
                     {isApplied ? (
                       <Button size="sm" variant="outline" disabled className="opacity-60">Applied ✓</Button>
                     ) : eligible ? (
-                      <Button size="sm" onClick={() => applyToDrive(drive)} disabled={applying === drive.id}>
+                      <Button size="sm" onClick={() => applyToDrive(drive)} disabled={applying === drive.id} className="bg-primary text-primary-foreground hover:bg-[#660019]">
                         {applying === drive.id ? "Applying…" : "Apply Now"}
                       </Button>
                     ) : (

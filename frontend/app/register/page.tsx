@@ -5,14 +5,17 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Zap, Loader2, GraduationCap, Building2, Shield, Users } from "lucide-react";
+import { Loader2, GraduationCap, Building2, Shield, ArrowRight, ArrowLeft } from "lucide-react";
+import { BrandLockup } from "@/components/brand";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { UserRole } from "@/lib/types";
 
 const roles = [
-  { value: "student" as UserRole, label: "Student", icon: GraduationCap, desc: "Find jobs & practice interviews", color: "from-purple-600 to-blue-600" },
-  { value: "recruiter" as UserRole, label: "Recruiter", icon: Building2, desc: "Post jobs & hire talent", color: "from-blue-600 to-cyan-600" },
-  { value: "university" as UserRole, label: "University", icon: Shield, desc: "Manage placement drives", color: "from-emerald-600 to-teal-600" },
-  { value: "mentor" as UserRole, label: "Mentor", icon: Users, desc: "Guide and inspire students", color: "from-amber-600 to-orange-600" },
+  { value: "student" as UserRole, label: "Student", icon: GraduationCap, desc: "Applications & interview readiness" },
+  { value: "recruiter" as UserRole, label: "Recruiter", icon: Building2, desc: "Campus drives & hiring talent" },
+  { value: "university" as UserRole, label: "University", icon: Shield, desc: "Manage placement operations" },
 ];
 
 export default function RegisterPage() {
@@ -60,95 +63,135 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute top-0 right-1/3 w-96 h-96 rounded-full bg-purple-600/8 blur-3xl" />
-      <div className="absolute bottom-0 left-1/3 w-80 h-80 rounded-full bg-emerald-600/8 blur-3xl" />
-
-      <div className="w-full max-w-lg relative">
-        <div className="text-center mb-8 animate-fade-up">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-2xl font-bold gradient-text">Placify</span>
+    <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-4 relative">
+      <div className="w-full max-w-lg relative py-8">
+        <div className="text-center mb-6">
+          <Link href="/" className="inline-block mb-3">
+            <BrandLockup />
           </Link>
-          <h1 className="text-xl font-semibold mt-6 text-white">Create your account</h1>
-          <p className="text-sm text-slate-500 mt-1">Step {step} of 2</p>
+          <h1 className="font-display text-2xl md:text-3xl font-medium tracking-tight text-foreground mt-2">
+            Create institutional account
+          </h1>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-1">
+            Step {step} of 2 · {step === 1 ? "Role Selection" : "Account Credentials"}
+          </p>
         </div>
 
         {/* Step 1: Role Selection */}
         {step === 1 && (
-          <div className="glass p-8 animate-fade-up delay-100">
-            <h2 className="text-sm font-medium text-slate-400 mb-4">I am a…</h2>
+          <div className="rounded-xl border border-border bg-card p-6 md:p-8 shadow-elevated">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">
+              Select your institutional portal
+            </h2>
             <div className="grid grid-cols-2 gap-3 mb-6">
-              {roles.map((r) => (
-                <button
-                  key={r.value}
-                  type="button"
-                  onClick={() => setSelectedRole(r.value)}
-                  className={`p-4 rounded-xl border text-left transition-all ${
-                    selectedRole === r.value
-                      ? "border-purple-500/50 bg-purple-500/10"
-                      : "border-white/5 bg-white/3 hover:border-white/15"
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${r.color} flex items-center justify-center mb-2`}>
-                    <r.icon className="w-4 h-4 text-white" />
-                  </div>
-                  <div className="font-medium text-sm text-white">{r.label}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">{r.desc}</div>
-                </button>
-              ))}
+              {roles.map((r) => {
+                const isSelected = selectedRole === r.value;
+                const Icon = r.icon;
+                return (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setSelectedRole(r.value)}
+                    className={`p-4 rounded-lg border text-left transition-all ${
+                      isSelected
+                        ? "border-[#800020] bg-[#800020]/5 ring-1 ring-[#800020]"
+                        : "border-border bg-background/50 hover:border-border/80 hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className={`w-8 h-8 rounded flex items-center justify-center mb-2.5 ${
+                      isSelected ? "bg-[#800020] text-white" : "bg-[#0A192F] text-white"
+                    }`}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div className="font-display font-semibold text-sm text-foreground">{r.label}</div>
+                    <div className="text-[11.5px] text-muted-foreground mt-0.5 leading-snug">{r.desc}</div>
+                  </button>
+                );
+              })}
             </div>
-            <button
+            <Button
               onClick={() => setStep(2)}
-              className="w-full py-3 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover:opacity-90 transition-all"
+              className="w-full h-11 bg-primary text-primary-foreground hover:bg-[#660019]"
             >
-              Continue as {roles.find(r => r.value === selectedRole)?.label}
-            </button>
+              Continue as {roles.find(r => r.value === selectedRole)?.label} <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+            <div className="mt-4 text-center text-xs text-muted-foreground">
+              Already have an account?{" "}
+              <Link href="/login" className="font-semibold text-primary hover:underline">Sign in</Link>
+            </div>
           </div>
         )}
 
-        {/* Step 2: Minimal account details — profile completion happens post-login */}
+        {/* Step 2: Minimal account details */}
         {step === 2 && (
-          <div className="glass p-8 animate-fade-up">
-            <button onClick={() => setStep(1)} className="text-xs text-slate-500 hover:text-slate-300 mb-4 flex items-center gap-1">
-              ← Back
+          <div className="rounded-xl border border-border bg-card p-6 md:p-8 shadow-elevated">
+            <button
+              onClick={() => setStep(1)}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to role selection
             </button>
-            <p className="text-xs text-slate-500 mb-5">
-              You can add your university, branch, and profile details after signing in.
+            <p className="text-xs text-muted-foreground mb-5">
+              Enter your basic credentials. University verification and profile details are completed post-login.
             </p>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Full Name</label>
-                <input type="text" value={form.full_name} onChange={e => setForm(f => ({...f, full_name: e.target.value}))} required
-                  placeholder="John Doe" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Full Name</Label>
+                <Input
+                  type="text"
+                  value={form.full_name}
+                  onChange={e => setForm(f => ({...f, full_name: e.target.value}))}
+                  required
+                  placeholder="Prof. John Doe / Jane Smith"
+                  className="bg-background border-border"
+                />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Email</label>
-                <input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} required
-                  placeholder="you@example.com" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Email</Label>
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={e => setForm(f => ({...f, email: e.target.value}))}
+                  required
+                  placeholder="you@university.ac.in"
+                  className="bg-background border-border"
+                />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Password</label>
-                <input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} required
-                  placeholder="Min 8 characters" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Password</Label>
+                <Input
+                  type="password"
+                  value={form.password}
+                  onChange={e => setForm(f => ({...f, password: e.target.value}))}
+                  required
+                  placeholder="Min 8 characters"
+                  className="bg-background border-border"
+                />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Confirm Password</label>
-                <input type="password" value={form.confirm_password} onChange={e => setForm(f => ({...f, confirm_password: e.target.value}))} required
-                  placeholder="••••••••" className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500/50" />
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Confirm Password</Label>
+                <Input
+                  type="password"
+                  value={form.confirm_password}
+                  onChange={e => setForm(f => ({...f, confirm_password: e.target.value}))}
+                  required
+                  placeholder="••••••••"
+                  className="bg-background border-border"
+                />
               </div>
 
-              <button type="submit" disabled={loading}
-                className="w-full py-3 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover:opacity-90 transition-all disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
-                {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating account…</> : "Create Account"}
-              </button>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full h-11 bg-primary text-primary-foreground hover:bg-[#660019] mt-2"
+              >
+                {loading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Creating account…</> : "Create Account"}
+              </Button>
             </form>
 
-            <div className="mt-5 text-center text-sm text-slate-500">
+            <div className="mt-5 text-center text-xs text-muted-foreground">
               Already have an account?{" "}
-              <Link href="/login" className="text-purple-400 hover:text-purple-300 font-medium">Sign in</Link>
+              <Link href="/login" className="font-semibold text-primary hover:underline">Sign in</Link>
             </div>
           </div>
         )}

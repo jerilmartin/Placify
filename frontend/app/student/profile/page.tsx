@@ -51,6 +51,17 @@ const EMPTY: ProfileData = {
   portfolio_url: "", profile_completion: 0, projects: [], work_experience: [],
 };
 
+function normalizeProfile(data: Record<string, unknown>): ProfileData {
+  return {
+    ...EMPTY,
+    ...Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value === null ? "" : value])),
+    skills: Array.isArray(data.skills) ? data.skills as string[] : [],
+    projects: Array.isArray(data.projects) ? data.projects as ProfileData["projects"] : [],
+    work_experience: Array.isArray(data.work_experience) ? data.work_experience as ProfileData["work_experience"] : [],
+    profile_completion: typeof data.profile_completion === "number" ? data.profile_completion : 0,
+  } as ProfileData;
+}
+
 export default function ProfilePage() {
   const { user } = useAuth();
   const [profile, setProfile] = useState<ProfileData>(EMPTY);
@@ -67,17 +78,7 @@ export default function ProfilePage() {
     const load = async () => {
       try {
         const { data } = await studentsApi.getProfile();
-        // Normalize null DB values → empty string so React controlled inputs don't error
-        setProfile({
-          ...EMPTY,
-          ...Object.fromEntries(
-            Object.entries(data).map(([k, v]) => [k, v === null ? "" : v])
-          ),
-          skills: Array.isArray(data.skills) ? data.skills : [],
-          projects: Array.isArray(data.projects) ? data.projects : [],
-          work_experience: Array.isArray(data.work_experience) ? data.work_experience : [],
-          profile_completion: data.profile_completion ?? 0,
-        } as ProfileData);
+        setProfile(normalizeProfile(data));
       } catch (error) {
         console.error("Failed to load profile", error);
       } finally {
@@ -112,10 +113,12 @@ export default function ProfilePage() {
       profile_completion: computeCompletion(draft),
     };
     try {
-      await studentsApi.updateProfile(payload);
-      setProfile({ ...draft, skills: [...draft.skills], profile_completion: computeCompletion(draft) });
+      const { data: saved } = await studentsApi.updateProfile(payload);
+      if (!saved?.id || saved.cgpa !== payload.cgpa) throw new Error("Profile update was not confirmed by the database");
+      setProfile(normalizeProfile(saved));
       setEditing(false);
-      setToast({ type: "success", msg: "Profile saved successfully!" });
+      window.dispatchEvent(new Event("placify:profile-updated"));
+      setToast({ type: "success", msg: "Profile saved. Job eligibility will use your updated details." });
     } catch {
       setToast({ type: "error", msg: "Failed to save. Please try again." });
     } finally {
@@ -152,17 +155,17 @@ export default function ProfilePage() {
       )}
 
       {/* Header card */}
-      <div className="overflow-hidden rounded-2xl border border-border bg-surface">
-        <div className="relative h-28 bg-gradient-to-r from-primary/25 via-[oklch(0.55_0.20_235)/0.2] to-transparent">
-          <div className="aurora opacity-60" />
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sharp">
+        <div className="relative h-28 bg-[#0A192F] border-b border-[#162740]">
+          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#D4AF37_1px,transparent_1px)] [background-size:16px_16px]" />
         </div>
         <div className="flex flex-col gap-4 px-6 pb-6 md:flex-row md:items-end md:justify-between">
           <div className="flex items-end gap-4">
-            <div className="-mt-10 flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border-4 border-surface bg-gradient-to-br from-primary to-[oklch(0.55_0.20_235)] text-xl font-semibold text-white">
+            <div className="-mt-10 flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border-4 border-card bg-[#0A192F] text-2xl font-serif font-bold text-[#D4AF37] shadow-sharp ring-1 ring-[#D4AF37]/40">
               {initials}
             </div>
             <div>
-              <h1 className="text-[22px] font-semibold tracking-tight">{f.full_name || "Your Name"}</h1>
+              <h1 className="font-serif text-2xl font-bold tracking-tight text-foreground">{f.full_name || "Your Name"}</h1>
               <p className="text-[13.5px] text-muted-foreground">
                 {[f.course, f.university, f.cgpa ? `CGPA ${f.cgpa}` : ""].filter(Boolean).join(" · ") || "Complete your profile below"}
               </p>
@@ -189,13 +192,13 @@ export default function ProfilePage() {
       </div>
 
       {/* Profile completion bar */}
-      <div className="mt-4 rounded-xl border border-border bg-surface p-4">
+      <div className="mt-4 rounded-xl border border-border bg-card p-4 shadow-sharp">
         <div className="flex items-center justify-between text-[13px]">
-          <span className="font-medium">Profile completion</span>
-          <span className="text-muted-foreground">{profile.profile_completion ?? 0}%</span>
+          <span className="font-medium text-foreground">Profile completion</span>
+          <span className="font-semibold text-[#D4AF37]">{profile.profile_completion ?? 0}%</span>
         </div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-elevated">
-          <div className="h-full rounded-full bg-gradient-to-r from-primary to-[oklch(0.55_0.20_235)] transition-all duration-500" style={{ width: `${profile.profile_completion ?? 0}%` }} />
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-[#800020] transition-all duration-500" style={{ width: `${profile.profile_completion ?? 0}%` }} />
         </div>
       </div>
 

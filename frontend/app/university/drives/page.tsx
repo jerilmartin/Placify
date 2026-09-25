@@ -7,10 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
+import { universitiesApi } from "@/lib/api";
+import { isDriveRegistrationClosed } from "@/lib/drive-status";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface Drive {
   id: string;
+  created_at?: string;
   title: string;
   company_name: string;
   role: string;
@@ -57,27 +60,27 @@ export default function DrivesPage() {
   };
 
   const loadDrives = async () => {
-    // Get university_profiles id for this user
-    const { data: uniProfile } = await supabase
-      .from("university_profiles")
-      .select("id")
-      .eq("user_id", user?.id)
-      .maybeSingle();
-
-    if (!uniProfile) { setLoading(false); return; }
-
-    const { data, error } = await supabase
-      .from("placement_drives")
-      .select("*")
-      .eq("university_id", uniProfile.id)
-      .order("created_at", { ascending: false });
-
-    if (error) console.error(error);
-    setDrives(data || []);
-    setLoading(false);
+    try {
+      const { data } = await universitiesApi.getAnalytics();
+      setDrives(((data.drives || []) as Drive[]).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")));
+    } catch (error) {
+      console.error("Failed to load verified drive counts:", error);
+      showToast("error", "Could not load drives. Please check the backend and retry.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { if (user) loadDrives(); }, [user]);
+  useEffect(() => {
+    if (!user) return;
+    universitiesApi.getAnalytics()
+      .then(({ data }) => setDrives(((data.drives || []) as Drive[]).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))))
+      .catch((error) => {
+        console.error("Failed to load verified drive counts:", error);
+        setToast({ type: "error", msg: "Could not load drives. Please check the backend and retry." });
+      })
+      .finally(() => setLoading(false));
+  }, [user]);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -147,11 +150,11 @@ export default function DrivesPage() {
       )}
 
       {/* Header */}
-      <div className="mb-6 flex items-end justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Placement Drives</h1>
+          <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">Placement Drives</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {drives.length} drive{drives.length !== 1 ? "s" : ""} scheduled
+            {drives.length} drive{drives.length !== 1 ? "s" : ""} scheduled for this academic year
           </p>
         </div>
         <Button size="sm" onClick={() => { setShowForm(true); setErrors({}); }}>
@@ -161,9 +164,9 @@ export default function DrivesPage() {
 
       {/* Create Drive Form */}
       {showForm && (
-        <div className="mb-6 rounded-xl border border-border bg-surface p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-[15px] font-medium">New Placement Drive</h2>
+        <div className="mb-6 rounded-xl border border-border bg-card p-6 shadow-sharp">
+          <div className="mb-4 flex items-center justify-between border-b border-border pb-3">
+            <h2 className="font-serif text-lg font-bold text-foreground">New Placement Drive</h2>
             <button type="button" onClick={() => { setShowForm(false); setErrors({}); }} className="text-muted-foreground hover:text-foreground">
               <X className="h-4 w-4" />
             </button>
@@ -201,8 +204,8 @@ export default function DrivesPage() {
             </div>
 
             {/* Eligibility */}
-            <div className="sm:col-span-2">
-              <p className="mb-3 text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Eligibility Criteria</p>
+            <div className="sm:col-span-2 pt-2">
+              <p className="mb-3 text-[12px] font-semibold text-muted-foreground uppercase tracking-wider">Eligibility Criteria</p>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="min_cgpa">Min CGPA</Label>
@@ -231,46 +234,46 @@ export default function DrivesPage() {
       {/* Drives List */}
       {loading ? (
         <div className="flex min-h-[40vh] items-center justify-center">
-          <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          <div className="w-8 h-8 rounded-full border-2 border-[#800020] border-t-transparent animate-spin" />
         </div>
       ) : drives.length === 0 ? (
-        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border">
+        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card shadow-sharp p-12">
           <Building2 className="h-10 w-10 text-muted-foreground/40" />
-          <p className="text-[14px] text-muted-foreground">No drives created yet</p>
+          <p className="font-serif text-lg font-bold text-foreground">No drives created yet</p>
           <Button size="sm" variant="outline" onClick={() => setShowForm(true)}>Create your first drive</Button>
         </div>
       ) : (
         <div className="space-y-3">
           {drives.map((d) => (
-            <div key={d.id} className="rounded-xl border border-border bg-surface p-5 hover:border-primary/30 transition-colors">
+            <div key={d.id} className="rounded-xl border border-border bg-card p-5 shadow-sharp hover:border-[#D4AF37]/40 transition-colors">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-[15px] font-medium">{d.company_name}</h3>
-                    <Badge className={`text-[10.5px] px-1.5 py-0 ${STATUS_COLORS[d.status] || ""}`}>{d.status}</Badge>
+                    <h3 className="font-serif text-lg font-bold text-foreground">{d.company_name}</h3>
+                    <Badge className={`text-[10.5px] px-2 py-0.5 rounded-md border ${isDriveRegistrationClosed(d) ? "bg-muted text-muted-foreground" : STATUS_COLORS[d.status] || ""}`}>{isDriveRegistrationClosed(d) ? "Applications closed" : d.status}</Badge>
                   </div>
-                  <p className="mt-0.5 text-[13px] text-muted-foreground">{d.title}{d.role ? ` · ${d.role}` : ""}</p>
+                  <p className="mt-0.5 text-[13.5px] text-muted-foreground">{d.title}{d.role ? ` · ${d.role}` : ""}</p>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
                     {d.location && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{d.location}</span>}
                     {d.drive_date && <span className="flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{new Date(d.drive_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>}
-                    {d.package_lpa && <span className="flex items-center gap-1"><Trophy className="h-3.5 w-3.5" />₹{d.package_lpa} LPA</span>}
+                    {d.package_lpa && <span className="flex items-center gap-1 text-[#D4AF37] font-semibold"><Trophy className="h-3.5 w-3.5 text-[#D4AF37]" />₹{d.package_lpa} LPA</span>}
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col gap-2 sm:items-end">
                   <div className="flex gap-3 text-[12.5px]">
                     <span className="text-muted-foreground">Registered: <strong className="text-foreground">{d.total_registered}</strong></span>
-                    <span className="text-muted-foreground">Selected: <strong className="text-foreground">{d.total_selected}</strong></span>
+                    <span className="text-muted-foreground">Selected: <strong className="text-[#D4AF37] font-bold">{d.total_selected}</strong></span>
                   </div>
                   {d.eligibility && (
                     <div className="flex flex-wrap gap-1.5">
                       {d.eligibility.min_cgpa != null && (
-                        <span className="rounded-md bg-elevated px-2 py-0.5 text-[11px] text-muted-foreground">Min CGPA: {d.eligibility.min_cgpa}</span>
+                        <span className="rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-foreground font-medium">Min CGPA: {d.eligibility.min_cgpa}</span>
                       )}
                       {d.eligibility.max_backlogs != null && (
-                        <span className="rounded-md bg-elevated px-2 py-0.5 text-[11px] text-muted-foreground">Max Backlogs: {d.eligibility.max_backlogs}</span>
+                        <span className="rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-foreground font-medium">Max Backlogs: {d.eligibility.max_backlogs}</span>
                       )}
                       {d.eligibility.eligible_branches?.map((b) => (
-                        <span key={b} className="rounded-md bg-elevated px-2 py-0.5 text-[11px] text-muted-foreground">{b}</span>
+                        <span key={b} className="rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-foreground font-medium">{b}</span>
                       ))}
                     </div>
                   )}

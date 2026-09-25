@@ -12,6 +12,7 @@ interface EducationEntry { degree?: string; institution?: string; year?: string 
 interface ExperienceEntry { role?: string; company?: string; duration?: string; description?: string; skills_used?: string[] }
 interface ProjectEntry { name?: string; description?: string; github_url?: string; tech_stack?: string[] }
 interface ExtractedResumeData extends Record<string, unknown> {
+  _ai_parsed?: boolean;
   name?: string; email?: string; phone?: string; location?: string; bio?: string;
   linkedin?: string; github?: string; skills?: string[]; achievements?: string[];
   education?: EducationEntry[]; experience?: ExperienceEntry[]; projects?: ProjectEntry[];
@@ -28,7 +29,7 @@ interface AtsScore {
 interface SyncResult { message: string; synced_fields?: string[]; profile_completion?: number }
 interface JobTargetSource { id: string; title: string; company: string }
 interface DriveTargetSource { id: string; title: string; role?: string; company_name: string }
-interface ApiError { response?: { data?: { detail?: string } } }
+interface ApiError { response?: { data?: { detail?: string } }; code?: string; message?: string }
 
 export default function ResumePage() {
   const [loading, setLoading] = useState(false);
@@ -107,12 +108,13 @@ export default function ResumePage() {
       return;
     }
     setGeneratingCover(true);
+    setCoverLetter("");
     try {
       const { data } = await resumesApi.generateCoverLetter(resumeId, targetId);
       setCoverLetter(data.cover_letter || "");
       toast.success("Cover letter generated");
-    } catch {
-      toast.error("Could not generate the cover letter");
+    } catch (err: unknown) {
+      toast.error((err as ApiError).response?.data?.detail || "Could not generate the cover letter. Please try again.");
     } finally {
       setGeneratingCover(false);
     }
@@ -141,8 +143,8 @@ export default function ResumePage() {
           : prev?.category_scores,
       }));
       toast.success("Resume recommendations updated");
-    } catch {
-      toast.error("Could not update resume recommendations. Check that the backend is running.");
+    } catch (err: unknown) {
+      toast.error((err as ApiError).response?.data?.detail || "Could not update resume recommendations. Check that the backend is running.");
     } finally {
       setImproving(false);
     }
@@ -150,15 +152,14 @@ export default function ResumePage() {
 
   const handleSync = async () => {
     const resumeId = activeResume?.id || activeResume?.resume_id;
-    const extractedData = activeResume?.extracted_data;
-    if (!activeResume && !extractedData) {
+    if (!resumeId) {
       toast.error("Please upload a resume first");
       return;
     }
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await resumesApi.syncToProfile(resumeId || "latest", extractedData);
+      const res = await resumesApi.syncToProfile(resumeId);
       const data = res.data;
       setSyncResult(data);
       if (data.synced_fields && data.synced_fields.length > 0) {
@@ -169,7 +170,7 @@ export default function ResumePage() {
         toast.info(data.message || "Profile already up to date.");
       }
     } catch (err: unknown) {
-      toast.error((err as ApiError).response?.data?.detail || "Failed to sync to profile. Make sure you have a student profile set up.");
+      toast.error((err as ApiError).response?.data?.detail || "Failed to sync this resume to your profile.");
     } finally {
       setSyncing(false);
     }
@@ -199,8 +200,8 @@ export default function ResumePage() {
       console.error("Upload error:", err);
       const apiErr = err as ApiError;
       const isTimeout =
-        apiErr.code === "ECONNABORTED" ||
-        apiErr.message?.toLowerCase().includes("timeout");
+        apiErr?.code === "ECONNABORTED" ||
+        apiErr?.message?.toLowerCase().includes("timeout");
 
       if (isTimeout) {
         setError(
@@ -259,17 +260,17 @@ export default function ResumePage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
-      <div className="mb-6 flex items-end justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Resume</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Keep one current resume, review the extracted details, and sync changes to your profile.</p>
+          <h1 className="font-display text-2xl font-medium tracking-tight md:text-[30px] text-foreground">Resume</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Keep one verified resume, review extracted skill parameters, and synchronize credentials with your profile.</p>
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
           <Button variant="outline" size="sm" disabled={!activeResume || improving} onClick={handleImprove}>
-            {improving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
-            {improving ? "Analyzing..." : "Review resume"}
+            {improving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5 text-primary" />}
+            {improving ? "Analyzing..." : "Review Resume"}
           </Button>
-          <Button size="sm" disabled={!activeResume || syncing} onClick={handleSync}>
+          <Button size="sm" disabled={!activeResume || syncing} onClick={handleSync} className="bg-primary text-primary-foreground hover:bg-[#660019] shadow-xs">
             {syncing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
             {syncing ? "Syncing..." : "Sync to Profile"}
           </Button>
@@ -283,13 +284,20 @@ export default function ResumePage() {
         </div>
       )}
 
+      {activeResume?.extracted_data?._ai_parsed === false && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>AI extraction was unavailable for this upload. Only basic resume details may have been detected. Review the fields below before syncing, or re-upload when Gemini is available.</span>
+        </div>
+      )}
+
       {!initialLoading && !activeResume && profileHasResumeData && (
         <div className="mb-4 flex items-start gap-3 rounded-xl border border-border bg-surface p-4 text-sm">
           <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
           <div>
-            <div className="font-medium">Your profile already contains resume information</div>
+            <div className="font-medium">Your profile has details, but no saved resume</div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Your profile is intact. Upload your latest resume once to restore resume analysis, version history, and cover-letter tools.
+              Profile fields can come from signup or manual edits. Upload a resume to extract details and enable cover letters.
             </p>
           </div>
         </div>
@@ -302,15 +310,15 @@ export default function ResumePage() {
           animate={{ opacity: 1, y: 0 }}
           className={`mb-4 rounded-lg border p-4 text-sm ${
             (syncResult.synced_fields?.length ?? 0) > 0
-              ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400"
-              : "border-border bg-surface text-muted-foreground"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900 shadow-sharp"
+              : "border-border bg-card text-muted-foreground shadow-sharp"
           }`}
         >
           <div className="font-medium">{syncResult.message}</div>
           {(syncResult.synced_fields?.length ?? 0) > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {syncResult.synced_fields?.map((f) => (
-                <span key={f} className="rounded-full bg-green-500/15 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:text-green-400">
+                <span key={f} className="rounded-full border border-emerald-300 bg-emerald-100/60 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
                   ✓ {fieldLabel[f] || f}
                 </span>
               ))}
@@ -332,12 +340,12 @@ export default function ResumePage() {
             animate={{ opacity: 1, y: 0 }}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
-            className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface p-10 text-center transition-colors hover:border-primary/50 hover:bg-elevated"
+            className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-card p-10 text-center transition-colors hover:border-primary/50 hover:bg-muted/30 shadow-sharp"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : activeResume ? <RefreshCw className="h-5 w-5" /> : <UploadCloud className="h-5 w-5" />}
             </div>
-            <div className="mt-3 text-[14px] font-medium">
+            <div className="mt-3 font-display text-[16px] font-semibold text-foreground">
               {loading ? "Extracting & analyzing with AI..." : activeResume ? "Upload a newer resume version" : "Upload your current resume"}
             </div>
             <div className="mt-1 text-[12px] text-muted-foreground">
@@ -353,7 +361,7 @@ export default function ResumePage() {
             />
           </motion.label>
 
-          <div className="rounded-xl border border-border bg-surface min-h-[300px]">
+          <div className="rounded-lg border border-border bg-card min-h-[300px] shadow-sharp">
             {initialLoading ? (
               <div className="flex min-h-[300px] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
             ) : activeResume ? (
@@ -499,13 +507,13 @@ export default function ResumePage() {
                   </div>
 
                   {/* ATS Score Column */}
-                  <div className="border-t border-border p-6 md:border-l md:border-t-0">
-                    <div className="text-[11px] uppercase tracking-widest text-muted-foreground">ATS score</div>
-                    <div className="mt-1 flex items-baseline gap-1">
-                      <span className="text-4xl font-semibold tabular-nums">{atsScore?.overall_score || 0}</span>
-                      <span className="text-sm text-muted-foreground">/100</span>
+                  <div className="border-t border-border p-6 md:border-l md:border-t-0 bg-muted/20">
+                    <div className="text-[10.5px] font-semibold uppercase tracking-widest text-muted-foreground">ATS Readiness Score</div>
+                    <div className="mt-1.5 flex items-baseline gap-1">
+                      <span className="font-display text-4xl font-semibold tabular-nums text-[#D4AF37]">{atsScore?.overall_score || 0}</span>
+                      <span className="text-sm font-medium text-muted-foreground">/100</span>
                     </div>
-                    <div className="mt-3 space-y-3">
+                    <div className="mt-4 space-y-3">
                       {[
                         { l: "Keyword match", v: atsScore?.category_scores?.keyword_match || 0 },
                         { l: "Structure", v: atsScore?.category_scores?.formatting_structure || 0 },
@@ -513,21 +521,24 @@ export default function ResumePage() {
                         { l: "Impact metrics", v: atsScore?.category_scores?.action_verbs_impact || 0 },
                       ].map((m) => (
                         <div key={m.l}>
-                          <div className="mb-1 flex justify-between text-[12px]"><span>{m.l}</span><span className="tabular-nums text-muted-foreground">{m.v}</span></div>
+                          <div className="mb-1 flex justify-between text-[11.5px]"><span className="font-medium text-foreground">{m.l}</span><span className="tabular-nums font-semibold text-muted-foreground">{m.v}</span></div>
                           <Progress value={m.v} className="h-1.5" />
                         </div>
                       ))}
                     </div>
 
                     {/* Sync CTA */}
-                    <div className="mt-5 rounded-lg border border-green-500/20 bg-green-500/8 p-3 text-center">
-                      <div className="text-[11px] font-medium text-green-700 dark:text-green-400 mb-2">
-                        Push extracted data to your profile
+                    <div className="mt-6 rounded-lg border border-border bg-card p-3.5 text-center shadow-sharp">
+                      <div className="text-[11.5px] font-semibold text-foreground mb-1">
+                        Synchronize to Profile
                       </div>
-                      <Button size="sm" className="w-full bg-green-600 hover:bg-green-700 text-white text-[12px]"
+                      <p className="text-[11px] text-muted-foreground mb-3">
+                        Push extracted education, projects & skills into your profile.
+                      </p>
+                      <Button size="sm" className="w-full bg-primary hover:bg-[#660019] text-primary-foreground text-[12px] font-medium shadow-xs"
                         disabled={!activeResume || syncing} onClick={handleSync}>
-                        {syncing ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <UserCheck className="mr-1.5 h-3 w-3" />}
-                        {syncing ? "Syncing..." : "Sync to Profile"}
+                        {syncing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
+                        {syncing ? "Syncing..." : "Sync Credentials"}
                       </Button>
                     </div>
                   </div>
@@ -536,7 +547,7 @@ export default function ResumePage() {
             ) : (
               <div className="flex h-full flex-col items-center justify-center p-12 text-center text-muted-foreground opacity-60">
                 <FileText className="mb-3 h-10 w-10" />
-                <p>{profileHasResumeData ? "Your profile is already updated" : "No saved resume yet"}</p>
+                <p>No saved resume yet</p>
                 <p className="mt-1 max-w-md text-xs">Upload your current file to enable resume review, version history, and tailored cover letters.</p>
               </div>
             )}

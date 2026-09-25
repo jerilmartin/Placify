@@ -17,12 +17,27 @@ interface Evaluation {
   strengths: string[];
   improvements: string[];
   feedback: string;
+  evaluation_mode?: "ai" | "basic";
+}
+
+interface Summary {
+  overall_score: number;
+  strengths: string[];
+  improvements: string[];
+  overall_recommendation: string;
 }
 
 interface QA {
   question: string;
   answer: string;
   evaluation: Evaluation | null;
+}
+
+function normalizeEvaluation(value: Evaluation | null): Evaluation | null {
+  if (!value) return null;
+  return !value.evaluation_mode && value.score > 0 && value.score <= 10
+    ? { ...value, score: value.score * 10 }
+    : value;
 }
 
 interface Application {
@@ -68,14 +83,17 @@ export default function InterviewPage() {
   const [starting, setStarting] = useState(false);
 
   // Summary
-  const [summary, setSummary] = useState<any>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [nextQuestion, setNextQuestion] = useState<string | null>(null);
+  const [pastSessions, setPastSessions] = useState<Array<{ id: string; status: string; created_at?: string; interview_type?: string; difficulty?: string; feedback?: Summary; responses?: QA[]; questions_asked?: string[]; current_question?: string }>>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch BOTH direct job applications AND drive applications on mount
   useEffect(() => {
-    if (!user) { setLoadingApps(false); return; }
+    if (!user) return;
     const loadApps = async () => {
       try {
         // 1. Get student profile id
@@ -116,10 +134,15 @@ export default function InterviewPage() {
     loadApps();
   }, [user]);
 
-  const overallScore = summary?.overall_score
-    ?? (history.length > 0
-      ? Math.round(history.reduce((s, q) => s + (q.evaluation?.score ?? 0), 0) / history.length)
-      : 0);
+  useEffect(() => {
+    if (!user) return;
+    interviewsApi.list().then((res) => setPastSessions(res.data || [])).catch(() => {});
+  }, [user]);
+
+  const scoredHistory = history.filter((qa) => qa.evaluation && qa.evaluation.evaluation_mode !== "basic");
+  const overallScore = scoredHistory.length > 0
+    ? Math.round(scoredHistory.reduce((s, q) => s + (q.evaluation?.score ?? 0), 0) / scoredHistory.length)
+    : 0;
 
   const getAppLabel = (app: Application) => {
     const title = app.jobs?.title || app.placement_drives?.role || "Role";
@@ -150,9 +173,11 @@ export default function InterviewPage() {
       setCurrentQuestion(data.current_question || data.questions_asked?.[0] || "Tell me about yourself.");
       setCurrentIdx(0);
       setHistory([]);
+      setEvaluation(null);
+      setReviewing(false);
       setPhase("active");
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || "";
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "";
       toast.error(detail || "Could not start interview — make sure the backend is running.");
     } finally {
       setStarting(false);
@@ -160,11 +185,9 @@ export default function InterviewPage() {
   };
 
   const submitAnswer = async () => {
-    if (!answer.trim() || waitingEval || !sessionId) return;
+    if (answer.trim().length < 10 || waitingEval || reviewing || !sessionId) return;
     setWaitingEval(true);
     const qa: QA = { question: currentQuestion, answer, evaluation: null };
-    setHistory((h) => [...h, qa]);
-    setAnswer("");
 
     try {
       const res = await interviewsApi.submitAnswer({
@@ -175,15 +198,12 @@ export default function InterviewPage() {
       });
       const data = res.data;
 
-      setHistory((h) => h.map((item, i) => i === h.length - 1 ? { ...item, evaluation: data.evaluation } : item));
-      setEvaluation(data.evaluation);
-
-      if (data.is_complete) {
-        await finishSession();
-      } else {
-        setCurrentQuestion(data.next_question);
-        setCurrentIdx(data.question_index);
-      }
+      const evaluated = normalizeEvaluation(data.evaluation);
+      setHistory((h) => [...h, { ...qa, evaluation: evaluated }]);
+      setAnswer("");
+      setEvaluation(evaluated);
+      setNextQuestion(data.is_complete ? null : data.next_question);
+      setReviewing(true);
     } catch {
       toast.error("Failed to submit answer. Please try again.");
     } finally {
@@ -191,14 +211,28 @@ export default function InterviewPage() {
     }
   };
 
+  const continueSession = async () => {
+    if (!nextQuestion) {
+      await finishSession();
+      return;
+    }
+    setCurrentQuestion(nextQuestion);
+    setCurrentIdx((index) => index + 1);
+    setEvaluation(null);
+    setReviewing(false);
+    setNextQuestion(null);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
   const finishSession = async () => {
-    if (!sessionId) return;
+    if (!sessionId || history.length === 0) return;
     setLoadingSummary(true);
     try {
       const res = await interviewsApi.complete(sessionId);
       setSummary(res.data);
+      interviewsApi.list().then((list) => setPastSessions(list.data || [])).catch(() => {});
     } catch {
-      // Summary may fail gracefully; show what we have
+      toast.error("Could not save the session summary. Your answer feedback is still available; you can retry.");
     } finally {
       setLoadingSummary(false);
       setPhase("complete");
@@ -218,27 +252,27 @@ export default function InterviewPage() {
     return (
       <div className="mx-auto max-w-2xl px-4 py-8 md:py-12">
         <div className="mb-8 text-center">
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[11px] text-primary">
-            <Sparkles className="h-3 w-3" /> AI Mock Interview
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-[11px] font-semibold text-primary">
+            <Sparkles className="h-3 w-3" /> AI Mock Assessment
           </div>
-          <h1 className="mt-4 text-3xl font-bold tracking-tight">Practice Interview</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            AI generates role-specific questions from your actual applications and evaluates every answer in real time.
+          <h1 className="font-display mt-3 text-3xl font-medium tracking-tight text-foreground">Practice Interview</h1>
+          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+            AI generates role-specific assessment questions from your verified applications and evaluates each response against standard scoring rubrics.
           </p>
         </div>
 
-        <div className="space-y-5 rounded-2xl border border-border bg-surface p-6">
+        <div className="space-y-5 rounded-lg border border-border bg-card p-6 md:p-8 shadow-sharp">
           {/* Pick from your applications */}
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium">
-              Practice for a job you&apos;ve applied to
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Target Application
             </label>
             {loadingApps ? (
               <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading your applications…
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading your registered applications…
               </div>
             ) : applications.length === 0 ? (
-              <p className="text-[13px] text-muted-foreground">No applications found. Enter a role below.</p>
+              <p className="text-[13px] text-muted-foreground">No applications found. Specify a target role below.</p>
             ) : (
               <div className="grid gap-2">
                 {applications.slice(0, 6).map((app) => (
@@ -249,17 +283,17 @@ export default function InterviewPage() {
                       setSelectedJobId(selectedJobId === newId ? null : newId);
                       setTargetRole(""); // clear manual role when picking an application
                     }}
-                    className={`flex items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-left text-[13px] transition-colors ${
+                    className={`flex items-center gap-2.5 rounded-md border px-3.5 py-2.5 text-left text-[13px] transition-colors ${
                       selectedJobId === (app.job_id || app.drive_id)
-                        ? "border-primary bg-primary/10 text-foreground"
-                        : "border-border bg-background hover:border-primary/40"
+                        ? "border-[#800020] bg-[#800020]/5 text-foreground ring-1 ring-[#800020]"
+                        : "border-border bg-background hover:border-border/80"
                     }`}
                   >
                     <BriefcaseBusiness className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="font-medium">{getAppLabel(app)}</span>
-                    <span className={`ml-auto shrink-0 text-[11px] capitalize rounded-full px-2 py-0.5 ${
-                      app.status === "accepted" ? "bg-success/15 text-success" :
-                      app.status === "shortlisted" ? "bg-blue-500/15 text-blue-400" :
+                    <span className={`ml-auto shrink-0 text-[10.5px] capitalize font-semibold rounded px-2 py-0.5 ${
+                      app.status === "accepted" ? "bg-success/15 text-success border border-success/30" :
+                      app.status === "shortlisted" ? "border border-[#E8D9A8] bg-[#FCF9EE] text-[#785A00]" :
                       "bg-muted text-muted-foreground"
                     }`}>{app.status}</span>
                   </button>
@@ -268,35 +302,35 @@ export default function InterviewPage() {
             )}
           </div>
 
-          <div className="flex items-center gap-3 text-[12px] text-muted-foreground">
+          <div className="flex items-center gap-3 text-[11.5px] uppercase tracking-wider text-muted-foreground">
             <div className="flex-1 border-t border-border" />
-            or enter a custom role
+            or custom position
             <div className="flex-1 border-t border-border" />
           </div>
 
           {/* Target Role (fallback) */}
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium">Target Role</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target Role</label>
             <input
               value={targetRole}
               onChange={(e) => { setTargetRole(e.target.value); setSelectedJobId(null); }}
-              placeholder="e.g. Software Engineer, Data Analyst, Product Manager"
-              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-[14px] outline-none focus:border-primary transition-colors"
+              placeholder="e.g. Software Engineer, Systems Architect, Financial Analyst"
+              className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-[13.5px] outline-none focus:border-primary transition-colors text-foreground"
             />
           </div>
 
           {/* Interview Type */}
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium">Interview Type</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Evaluation Track</label>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {INTERVIEW_TYPES.map((t) => (
                 <button
                   key={t.value}
                   onClick={() => setInterviewType(t.value)}
-                  className={`rounded-lg border px-3 py-2.5 text-[13px] font-medium transition-colors ${
+                  className={`rounded-md border px-3 py-2.5 text-[12.5px] font-semibold transition-colors ${
                     interviewType === t.value
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background hover:border-primary/40"
+                      ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                   }`}
                 >
                   {t.label}
@@ -307,16 +341,16 @@ export default function InterviewPage() {
 
           {/* Difficulty */}
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium">Difficulty</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rigor Level</label>
             <div className="flex gap-2">
               {DIFFICULTIES.map((d) => (
                 <button
                   key={d}
                   onClick={() => setDifficulty(d)}
-                  className={`flex-1 rounded-lg border px-3 py-2.5 text-[13px] font-medium capitalize transition-colors ${
+                  className={`flex-1 rounded-md border px-3 py-2 text-[12.5px] font-semibold capitalize transition-colors ${
                     difficulty === d
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background hover:border-primary/40"
+                      ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                   }`}
                 >
                   {d}
@@ -327,8 +361,8 @@ export default function InterviewPage() {
 
           {/* Number of questions */}
           <div>
-            <label className="mb-1.5 block text-[13px] font-medium">
-              Questions — <span className="text-primary font-semibold">{numQuestions}</span>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Questions — <span className="text-primary font-bold">{numQuestions}</span>
             </label>
             <input
               type="range" min={3} max={10} value={numQuestions}
@@ -338,19 +372,20 @@ export default function InterviewPage() {
             <div className="mt-1 flex justify-between text-[11px] text-muted-foreground"><span>3</span><span>10</span></div>
           </div>
 
-          <Button onClick={startSession} disabled={starting} className="w-full gap-2" size="lg">
+          <Button onClick={startSession} disabled={starting} className="w-full gap-2 bg-primary text-primary-foreground hover:bg-[#660019] shadow-xs" size="lg">
             {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {starting ? "Generating questions…" : "Start Interview Session"}
           </Button>
         </div>
+        {pastSessions.length > 0 && <div className="mt-6 rounded-lg border border-border bg-card p-5"><h2 className="text-sm font-semibold">Previous practice sessions</h2><div className="mt-3 space-y-2">{pastSessions.slice(0, 5).map((session) => <div key={session.id} className="flex items-center justify-between gap-3 border-t border-border pt-2 text-xs"><span>{session.created_at ? new Date(session.created_at).toLocaleDateString() : "Practice session"} · {session.responses?.length || 0} answered · {session.status}</span>{session.status === "active" && session.current_question ? <button type="button" className="font-semibold text-primary hover:underline" onClick={() => { setSessionId(session.id); setQuestions(session.questions_asked || []); setHistory((session.responses || []).map((r) => ({ question: r.question, answer: r.answer, evaluation: normalizeEvaluation(r.evaluation) }))); setCurrentIdx(session.responses?.length || 0); setCurrentQuestion(session.current_question || ""); setEvaluation(null); setReviewing(false); setPhase("active"); }}>Resume</button> : session.feedback ? <button type="button" className="font-semibold text-primary hover:underline" onClick={() => { setHistory((session.responses || []).map((r) => ({ question: r.question, answer: r.answer, evaluation: normalizeEvaluation(r.evaluation) }))); setSummary(session.feedback || null); setNumQuestions(session.questions_asked?.length || session.responses?.length || 0); setInterviewType(session.interview_type || "technical"); setDifficulty(session.difficulty || "medium"); setPhase("complete"); }}>Review session</button> : null}</div>)}</div></div>}
       </div>
     );
   }
 
   // ── COMPLETE SCREEN ───────────────────────────────────────────
   if (phase === "complete") {
-    const strengths: string[] = summary?.key_strengths ?? history.flatMap((q) => q.evaluation?.strengths ?? []).slice(0, 3);
-    const improvements: string[] = summary?.areas_for_improvement ?? history.flatMap((q) => q.evaluation?.improvements ?? []).slice(0, 3);
+    const strengths: string[] = summary?.strengths ?? history.flatMap((q) => q.evaluation?.strengths ?? []).slice(0, 3);
+    const improvements: string[] = summary?.improvements ?? history.flatMap((q) => q.evaluation?.improvements ?? []).slice(0, 3);
 
     return (
       <div className="mx-auto max-w-3xl px-4 py-8">
@@ -361,13 +396,15 @@ export default function InterviewPage() {
           <h1 className="text-2xl font-bold">Interview Complete!</h1>
           <p className="mt-1 text-sm text-muted-foreground">{numQuestions} questions · {interviewType} · {difficulty}</p>
         </div>
+        {summary?.overall_recommendation && <p className="mb-4 rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">{summary.overall_recommendation}</p>}
 
         {/* Score */}
         <div className="mb-4 rounded-xl border border-border bg-surface p-6 text-center">
           <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Overall Score</div>
-          <div className="mt-2 text-6xl font-bold tabular-nums text-primary">{loadingSummary ? "—" : overallScore}<span className="text-2xl text-muted-foreground">/100</span></div>
-          <Progress value={overallScore} className="mt-4 h-2" />
+          {scoredHistory.length > 0 ? <><div className="mt-2 text-6xl font-bold tabular-nums text-primary">{loadingSummary ? "—" : overallScore}<span className="text-2xl text-muted-foreground">/100</span></div><Progress value={overallScore} className="mt-4 h-2" /></> : <div className="mt-2 text-sm text-muted-foreground">Not scored — AI evaluation was unavailable for this session.</div>}
+          {scoredHistory.length > 0 && scoredHistory.length < history.length && <p className="mt-2 text-xs text-muted-foreground">Based on {scoredHistory.length} AI-scored answers; basic checks were excluded.</p>}
         </div>
+        {!summary && <Button onClick={finishSession} disabled={loadingSummary} variant="outline" className="mb-4 w-full">{loadingSummary ? "Saving summary…" : "Retry summary"}</Button>}
 
         <div className="grid gap-4 md:grid-cols-2">
           {strengths.length > 0 && (
@@ -405,7 +442,7 @@ export default function InterviewPage() {
                 <div className="text-[13.5px] font-medium">Q{i + 1}: {qa.question}</div>
                 {qa.evaluation && (
                   <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-[12px] font-semibold text-primary">
-                    {qa.evaluation.score}/100
+                    {qa.evaluation.evaluation_mode === "basic" ? "Not scored" : `${qa.evaluation.score}/100`}
                   </span>
                 )}
               </div>
@@ -432,7 +469,7 @@ export default function InterviewPage() {
   }
 
   // ── ACTIVE INTERVIEW ──────────────────────────────────────────
-  const progress = questions.length > 0 ? ((currentIdx) / questions.length) * 100 : 0;
+  const progress = questions.length > 0 ? (history.length / questions.length) * 100 : 0;
   const isLastQuestion = currentIdx >= (questions.length - 1);
 
   return (
@@ -447,7 +484,7 @@ export default function InterviewPage() {
           <span className="text-[12px] text-muted-foreground">
             Question {Math.min(currentIdx + 1, questions.length)} of {questions.length}
           </span>
-          <Button size="sm" variant="ghost" onClick={finishSession} disabled={loadingSummary}>
+          <Button size="sm" variant="ghost" onClick={finishSession} disabled={loadingSummary || waitingEval || history.length === 0}>
             {loadingSummary ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "End Session"}
           </Button>
         </div>
@@ -467,46 +504,49 @@ export default function InterviewPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2 }}
-              className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/8 via-surface to-surface p-6"
+              className="rounded-xl border border-border bg-card p-6 shadow-sharp"
             >
               <div className="mb-3 flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15">
-                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#0A192F] text-[#D4AF37] border border-[#162740]">
+                  <Sparkles className="h-3.5 w-3.5 text-[#D4AF37]" />
                 </div>
-                <span className="text-[11px] font-medium uppercase tracking-wider text-primary">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#800020]">
                   AI Interviewer
                 </span>
               </div>
-              <p className="text-[16px] font-medium leading-relaxed">{currentQuestion}</p>
+              <p className="font-serif text-[17px] font-semibold leading-relaxed text-foreground">{currentQuestion}</p>
             </motion.div>
           </AnimatePresence>
 
           {/* Answer Box */}
-          <div className="rounded-2xl border border-border bg-surface p-4">
-            <label className="mb-2 block text-[12px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sharp">
+            <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Your Answer
             </label>
-            <textarea
+            {reviewing ? <div className="min-h-28 whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-sm leading-relaxed">{history[history.length - 1]?.answer}</div> : <textarea
               ref={textareaRef}
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) submitAnswer(); }}
               placeholder="Type your answer here… (Ctrl+Enter to submit)"
-              disabled={waitingEval}
+              disabled={waitingEval || reviewing}
               rows={5}
-              className="w-full resize-none bg-transparent text-[14px] leading-relaxed outline-none placeholder:text-muted-foreground disabled:opacity-60"
-            />
+              className="w-full resize-none bg-background border border-input rounded-md p-3 text-[14px] leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring placeholder:text-muted-foreground disabled:opacity-60 text-foreground"
+            />}
             <div className="mt-3 flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground">{answer.length} characters</span>
-              <Button onClick={submitAnswer} disabled={!answer.trim() || waitingEval} className="gap-2">
+              <span className="text-[11px] text-muted-foreground">{reviewing ? "Review your answer before continuing" : `${answer.length} characters`}</span>
+              <Button onClick={reviewing ? continueSession : submitAnswer} disabled={(!reviewing && answer.trim().length < 10) || waitingEval || loadingSummary} className="gap-2">
                 {waitingEval
                   ? <><Loader2 className="h-4 w-4 animate-spin" /> Evaluating…</>
+                  : reviewing
+                    ? <><ChevronRight className="h-4 w-4" /> {nextQuestion ? "Next Question" : "View Session Review"}</>
                   : isLastQuestion
                     ? <><CheckCircle2 className="h-4 w-4" /> Submit Final Answer</>
                     : <><Send className="h-4 w-4" /> Submit Answer</>
                 }
               </Button>
             </div>
+            {!reviewing && answer.trim().length > 0 && answer.trim().length < 10 && <p className="mt-2 text-xs text-muted-foreground">Add a little more detail before submitting (at least 10 characters).</p>}
           </div>
         </div>
 
@@ -516,15 +556,16 @@ export default function InterviewPage() {
             <motion.div
               initial={{ opacity: 0, x: 8 }}
               animate={{ opacity: 1, x: 0 }}
-              className="rounded-xl border border-border bg-surface p-5"
+              className="rounded-xl border border-border bg-card p-5 shadow-sharp"
             >
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-[14px] font-semibold">Last Answer Feedback</h3>
-                <span className={`rounded-full px-2.5 py-0.5 text-[13px] font-bold ${evaluation.score >= 70 ? "bg-success/15 text-success" : evaluation.score >= 50 ? "bg-warning/15 text-warning" : "bg-destructive/15 text-destructive"}`}>
-                  {evaluation.score}/100
+                <h3 className="text-[14px] font-semibold">Answer feedback</h3>
+                <span className={`rounded-full px-2.5 py-0.5 text-[13px] font-bold ${evaluation.evaluation_mode === "basic" ? "bg-muted text-muted-foreground" : evaluation.score >= 70 ? "bg-success/15 text-success" : evaluation.score >= 50 ? "bg-warning/15 text-warning" : "bg-destructive/15 text-destructive"}`}>
+                  {evaluation.evaluation_mode === "basic" ? "Not scored" : `${evaluation.score}/100`}
                 </span>
               </div>
               <p className="text-[13px] leading-relaxed text-foreground/80">{evaluation.feedback}</p>
+              {evaluation.evaluation_mode === "basic" && <p className="mt-2 text-[11px] text-muted-foreground">Gemini could not score this answer. This is a simple writing checklist, not a performance rating.</p>}
               {evaluation.strengths?.length > 0 && (
                 <div className="mt-4">
                   <div className="text-[11px] font-medium uppercase tracking-wider text-success mb-1">Strengths</div>
@@ -560,7 +601,7 @@ export default function InterviewPage() {
                 <span
                   key={i}
                   className={`h-1.5 flex-1 rounded-full transition-colors ${
-                    i < currentIdx ? "bg-success"
+                    i < history.length ? "bg-success"
                     : i === currentIdx ? "bg-primary"
                     : "bg-elevated"
                   }`}
@@ -568,13 +609,13 @@ export default function InterviewPage() {
               ))}
             </div>
             <div className="mt-2 text-[12px] text-muted-foreground">
-              {currentIdx} of {questions.length || numQuestions} answered
+              {history.length} of {questions.length || numQuestions} answered
             </div>
-            {history.length > 0 && (
+            {scoredHistory.length > 0 && (
               <div className="mt-3 text-[12px] text-muted-foreground">
                 Avg score so far:{" "}
                 <span className="font-semibold text-foreground">
-                  {Math.round(history.reduce((s, q) => s + (q.evaluation?.score ?? 0), 0) / history.length)}/100
+                  {Math.round(scoredHistory.reduce((s, q) => s + (q.evaluation?.score ?? 0), 0) / scoredHistory.length)}/100
                 </span>
               </div>
             )}

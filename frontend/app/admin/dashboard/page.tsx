@@ -23,10 +23,10 @@ const tenants = [
 export default function AdminPage() {
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
-      <div className="mb-6 flex items-end justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Super Admin · placify.systems</div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-[28px]">Platform control</h1>
+          <div className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">Super Admin · placify.systems</div>
+          <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-foreground">Platform Control</h1>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm">Audit log</Button>
@@ -43,12 +43,12 @@ export default function AdminPage() {
         ].map((k) => {
           const Icon = k.icon;
           return (
-            <div key={k.l} className="rounded-xl border border-border bg-surface p-4">
+            <div key={k.l} className="rounded-xl border border-border bg-card p-4 shadow-sharp">
               <div className="flex items-center justify-between">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{k.l}</div>
+                <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">{k.l}</div>
                 <Icon className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
-              <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{k.v}</div>
+              <div className="mt-2 font-serif text-2xl font-bold tracking-tight tabular-nums text-foreground">{k.v}</div>
               <div className="mt-1 text-[11px] text-muted-foreground">{k.d}</div>
             </div>
           );
@@ -56,14 +56,14 @@ export default function AdminPage() {
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2 rounded-xl border border-border bg-surface p-5">
+        <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5 shadow-sharp">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-[14px] font-medium">API usage · last 7 days</h3>
+              <h3 className="font-serif text-base font-semibold text-foreground">API usage · last 7 days</h3>
               <p className="text-[12px] text-muted-foreground">All tenants, requests in thousands</p>
             </div>
-            <span className="flex items-center gap-1.5 rounded-md bg-success/12 px-2 py-1 text-[11px] font-medium text-success">
-              <span className="h-1.5 w-1.5 rounded-full bg-success" /> All systems normal
+            <span className="flex items-center gap-1.5 rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-[11px] font-medium text-emerald-800">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" /> All systems normal
             </span>
           </div>
           <div className="mt-3 h-[220px]">
@@ -71,20 +71,20 @@ export default function AdminPage() {
               <AreaChart data={usage} margin={{ left: -10, right: 8 }}>
                 <defs>
                   <linearGradient id="ug" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="oklch(0.68 0.19 285)" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="oklch(0.68 0.19 285)" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#800020" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#800020" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="d" stroke="oklch(0.68 0.02 270)" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ background: "oklch(0.19 0.017 270)", border: "1px solid oklch(1 0 0 / 0.1)", borderRadius: 10, fontSize: 12 }} />
-                <Area type="monotone" dataKey="v" stroke="oklch(0.68 0.19 285)" strokeWidth={2} fill="url(#ug)" />
+                <XAxis dataKey="d" stroke="#64748B" fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid #E5E0D8", borderRadius: 8, color: "#1C1917", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }} />
+                <Area type="monotone" dataKey="v" stroke="#800020" strokeWidth={2} fill="url(#ug)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-surface p-5">
-          <h3 className="text-[14px] font-medium">Feature flags</h3>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sharp">
+          <h3 className="font-serif text-base font-semibold text-foreground">Feature flags</h3>
           <ul className="mt-3 space-y-3 text-[13px]">
             {[
               { n: "AI Interview v3", s: "Beta · 4 tenants" },
@@ -93,50 +93,50 @@ export default function AdminPage() {
               { n: "Mentor availability calendar", s: "Off" },
             ].map((f) => (
               <li key={f.n} className="flex items-center justify-between">
-                <span>{f.n}</span>
-                <span className="rounded-md bg-elevated px-1.5 py-0.5 text-[11px] text-muted-foreground">{f.s}</span>
+                <span className="text-foreground font-medium">{f.n}</span>
+                <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">{f.s}</span>
               </li>
             ))}
           </ul>
-          <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-elevated/40 p-3 text-[12px]">
-            <ShieldCheck className="h-4 w-4 text-success" />
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-muted/30 p-3 text-[12px]">
+            <ShieldCheck className="h-4 w-4 text-emerald-700 shrink-0" />
             <span className="text-muted-foreground">SOC 2 Type II · valid until Feb 2027</span>
           </div>
         </div>
       </div>
 
-      <div className="mt-4 rounded-xl border border-border bg-surface">
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h3 className="text-[14px] font-medium">Tenants</h3>
+      <div className="mt-4 rounded-xl border border-border bg-card shadow-sharp overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border bg-muted/40 px-5 py-3">
+          <h3 className="font-serif text-base font-semibold text-foreground">Tenants</h3>
           <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <Key className="h-3.5 w-3.5" /> API keys managed per tenant
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-[13px]">
-            <thead className="bg-elevated/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
               <tr>
-                <th className="px-5 py-2.5 text-left">Tenant</th>
-                <th className="px-3 py-2.5 text-left">Plan</th>
-                <th className="px-3 py-2.5 text-left">Seats</th>
-                <th className="px-3 py-2.5 text-left">MRR</th>
-                <th className="px-3 py-2.5 text-left">Status</th>
-                <th className="px-5 py-2.5"></th>
+                <th className="px-5 py-3 text-left">Tenant</th>
+                <th className="px-3 py-3 text-left">Plan</th>
+                <th className="px-3 py-3 text-left">Seats</th>
+                <th className="px-3 py-3 text-left">MRR</th>
+                <th className="px-3 py-3 text-left">Status</th>
+                <th className="px-5 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {tenants.map((t) => (
-                <tr key={t.name} className="hover:bg-elevated/60">
-                  <td className="px-5 py-3 font-medium">{t.name}</td>
-                  <td className="px-3 py-3"><span className="rounded bg-elevated px-1.5 py-0.5 text-[11px]">{t.plan}</span></td>
-                  <td className="px-3 py-3 tabular-nums text-muted-foreground">{t.seats}</td>
-                  <td className="px-3 py-3 tabular-nums">{t.mrr}</td>
-                  <td className="px-3 py-3">
-                    <span className={t.status === "Healthy" ? "rounded-md bg-success/12 px-1.5 py-0.5 text-[11px] text-success" : "rounded-md bg-warning/12 px-1.5 py-0.5 text-[11px] text-warning"}>
+                <tr key={t.name} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-5 py-3.5 font-medium text-foreground">{t.name}</td>
+                  <td className="px-3 py-3.5"><span className="rounded border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium">{t.plan}</span></td>
+                  <td className="px-3 py-3.5 tabular-nums text-muted-foreground">{t.seats}</td>
+                  <td className="px-3 py-3.5 tabular-nums font-semibold text-[#800020]">{t.mrr}</td>
+                  <td className="px-3 py-3.5">
+                    <span className={t.status === "Healthy" ? "rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800" : "rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"}>
                       {t.status}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-right"><Button variant="ghost" size="sm">Manage</Button></td>
+                  <td className="px-5 py-3.5 text-right"><Button variant="ghost" size="sm">Manage</Button></td>
                 </tr>
               ))}
             </tbody>

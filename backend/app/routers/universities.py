@@ -8,8 +8,11 @@ from app.models.university import (
 from app.models.drive_request import DriveRequestReview
 from app.middleware.auth import require_university
 from app.database import get_supabase
+from app.services.eligibility_service import is_eligible_for_drive
 import logging
 import uuid
+from datetime import date
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,7 +50,16 @@ async def list_drives(current_user=Depends(require_university)):
         .eq("university_id", profile.data[0]["id"]) \
         .order("drive_date") \
         .execute()
-    return result.data or []
+    drives = result.data or []
+    if drives:
+        analytics = await university_analytics(current_user)
+        counts = {
+            drive["id"]: (drive["total_registered"], drive["total_selected"])
+            for drive in analytics["drives"]
+        }
+        for drive in drives:
+            drive["total_registered"], drive["total_selected"] = counts.get(drive["id"], (0, 0))
+    return drives
 
 
 @router.post("/drives", response_model=PlacementDriveResponse, status_code=201)
@@ -94,65 +106,16 @@ async def get_eligible_students(drive_id: uuid.UUID, current_user=Depends(requir
 
         drive = drive_result.data[0]
         eligibility = drive.get("eligibility") or {}
-        min_cgpa = eligibility.get("min_cgpa", 0)
-        max_backlogs = eligibility.get("max_backlogs", None)
-        eligible_branches = eligibility.get("eligible_branches", [])
-        grad_year = eligibility.get("graduation_year")
-
-        # university_id is authoritative. Keep the exact-name fallback only
-        # for older profiles awaiting the one-time tenant migration.
-        query = supabase.table("student_profiles").select("*") \
-            .eq("university_id", university.data[0]["id"])
-        if min_cgpa:
-            query = query.gte("cgpa", min_cgpa)
-        if grad_year:
-            query = query.eq("graduation_year", grad_year)
-        # max_backlogs: only apply filter if explicitly set (0 means "no backlogs allowed")
-        if max_backlogs is not None:
-            query = query.lte("active_backlogs", max_backlogs)
-
-        result = query.execute()
-        students = result.data or []
-        if not students:
-            legacy = supabase.table("student_profiles").select("*") \
-                .ilike("university", university.data[0]["name"]).execute()
-            students = legacy.data or []
-
-        # eligible_branches: do intelligent alias-aware match in Python
-        if eligible_branches:
-            BRANCH_ALIASES = {
-                "cs": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
-                "cse": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
-                "computer science": ["cs", "cse", "computer science", "comp sci", "computer engineering", "software"],
-                "it": ["it", "information technology", "info tech"],
-                "information technology": ["it", "information technology", "info tech"],
-                "ece": ["ece", "electronics", "ec", "telecommunication", "communication"],
-                "electronics": ["ece", "electronics", "ec", "telecommunication", "communication"],
-                "eee": ["eee", "electrical", "ee"],
-                "electrical": ["eee", "electrical", "ee"],
-                "mech": ["mech", "mechanical"],
-                "mechanical": ["mech", "mechanical"],
-                "civil": ["civil"],
-                "ai": ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
-                "ml": ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
-                "data science": ["ai", "ml", "artificial intelligence", "machine learning", "data science"],
-            }
-
-            def student_matches(course_str: str) -> bool:
-                c_norm = course_str.lower().strip()
-                for req in eligible_branches:
-                    r_norm = req.lower().strip()
-                    if r_norm in c_norm or c_norm in r_norm:
-                        return True
-                    aliases = BRANCH_ALIASES.get(r_norm, [])
-                    if any(alias in c_norm for alias in aliases):
-                        return True
-                return False
-
-            students = [
-                s for s in students
-                if s.get("course") and student_matches(s["course"])
-            ]
+        university_id = university.data[0]["id"]
+        students = supabase.table("student_profiles").select("*") \
+            .eq("university_id", university_id).execute().data or []
+        # Older profiles may not yet have the tenant FK. Include only unlinked
+        # exact-name matches, and run the same eligibility checks on them.
+        legacy = supabase.table("student_profiles").select("*") \
+            .is_("university_id", "null") \
+            .ilike("university", university.data[0]["name"]).execute().data or []
+        students = [student for student in [*students, *legacy]
+                    if is_eligible_for_drive(student, eligibility)]
 
         return {
             "drive": drive,
@@ -212,7 +175,7 @@ async def list_university_students(current_user=Depends(require_university)):
 
 @router.get("/drive-requests")
 async def list_drive_requests(
-    status_filter: str | None = None,
+    status_filter: Optional[str] = None,
     current_user=Depends(require_university),
 ):
     """List campus-drive proposals addressed to the current university."""
@@ -335,35 +298,84 @@ async def set_recruiter_verification(
 
 @router.get("/analytics")
 async def university_analytics(current_user=Depends(require_university)):
-    """
-    University placement analytics dashboard.
-    Returns: placement_rate, avg_package, highest_package, total_placed, by_company, by_branch
-    """
+    """Tenant-scoped, application-backed placement analytics (never cached counters)."""
     supabase = get_supabase()
     try:
-        profile = supabase.table("university_profiles").select("id").eq("user_id", str(current_user.id)).limit(1).execute()
+        profile = supabase.table("university_profiles").select("id,name").eq("user_id", str(current_user.id)).limit(1).execute()
         if not profile.data:
-            return {}
+            raise HTTPException(status_code=404, detail="University profile not found")
 
-        # Aggregate stats from drives
-        drives = supabase.table("placement_drives") \
-            .select("*") \
-            .eq("university_id", profile.data[0]["id"]) \
-            .execute()
+        university_id = profile.data[0]["id"]
+        def fetch_all(table, columns, field, value):
+            items = []
+            offset = 0
+            while True:
+                page = (supabase.table(table).select(columns).eq(field, value).order("id")
+                        .range(offset, offset + 999).execute()).data or []
+                items.extend(page)
+                if len(page) < 1000:
+                    return items
+                offset += 1000
 
-        drives_data = drives.data or []
-        total_selected = sum(d.get("total_selected", 0) for d in drives_data)
-        total_registered = sum(d.get("total_registered", 0) for d in drives_data)
-        packages = [d.get("package_lpa", 0) for d in drives_data if d.get("package_lpa")]
+        drives_data = fetch_all(
+            "placement_drives",
+            "id,title,role,company_name,package_lpa,drive_date,registration_deadline,status,created_at,location,eligibility",
+            "university_id", university_id,
+        )
+        students = fetch_all("student_profiles", "id,course", "university_id", university_id)
+        drive_ids = [drive["id"] for drive in drives_data]
+        applications = []
+        # Query only this university's drives; chunk UUID filters to keep URLs bounded.
+        for start in range(0, len(drive_ids), 100):
+            ids = drive_ids[start:start + 100]
+            offset = 0
+            while True:
+                page = (supabase.table("drive_applications")
+                        .select("id,drive_id,student_id,status").in_("drive_id", ids).order("id")
+                        .range(offset, offset + 999).execute()).data or []
+                applications.extend(page)
+                if len(page) < 1000:
+                    break
+                offset += 1000
+
+        selected_statuses = {"selected", "offered", "accepted", "placed"}
+        student_ids = {student["id"] for student in students}
+        active_apps = [
+            app for app in applications
+            if app.get("student_id") in student_ids
+            and (app.get("status") or "").lower() != "withdrawn"
+        ]
+        selected_apps = [app for app in active_apps if (app.get("status") or "").lower() in selected_statuses]
+        for drive in drives_data:
+            drive["total_registered"] = len({app["student_id"] for app in active_apps if app["drive_id"] == drive["id"]})
+            drive["total_selected"] = len({app["student_id"] for app in selected_apps if app["drive_id"] == drive["id"]})
+
+        today = date.today().isoformat()
+        active_drives = sum(
+            drive.get("status") in {"active", "upcoming"}
+            and (drive.get("registration_deadline") or drive.get("drive_date") or today) >= today
+            for drive in drives_data
+        )
+        registered_ids = {app["student_id"] for app in active_apps}
+        selected_ids = {app["student_id"] for app in selected_apps}
+        packages = [drive["package_lpa"] for drive in drives_data if drive.get("package_lpa")]
 
         return {
+            "university_name": profile.data[0]["name"],
             "total_drives": len(drives_data),
-            "total_registered": total_registered,
-            "total_placed": total_selected,
-            "placement_rate": round((total_selected / total_registered * 100) if total_registered else 0, 1),
+            "active_drives": active_drives,
+            "total_students": len(students),
+            "total_registered": len(registered_ids),
+            "total_placed": len(selected_ids),
+            "placement_rate": round(len(selected_ids) / len(registered_ids) * 100, 1) if registered_ids else 0,
             "average_package_lpa": round(sum(packages) / len(packages), 2) if packages else 0,
             "highest_package_lpa": max(packages) if packages else 0,
             "drives": drives_data,
+            "students": students,
+            "applications": active_apps,
         }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error("University analytics failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch analytics")

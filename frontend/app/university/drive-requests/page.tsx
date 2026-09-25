@@ -92,33 +92,45 @@ export default function UniversityDriveRequestsPage() {
   return (
     <div className="mx-auto max-w-6xl p-6 md:p-8">
       <div className="mb-6">
-        <div className="text-xs uppercase tracking-widest text-muted-foreground">Placement Cell · Approvals</div>
-        <h1 className="mt-1 text-2xl font-semibold">Campus-drive requests</h1>
+        <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Placement Cell · Approvals</div>
+        <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-foreground">Campus-Drive Requests</h1>
         <p className="mt-1 text-sm text-muted-foreground">Review recruiter proposals. Approval publishes an upcoming drive without re-entering its details.</p>
       </div>
 
       <div className="mb-5 flex flex-wrap gap-2">
-        {FILTERS.map((item) => <Button key={item.label} size="sm" variant={filter === item.value ? "default" : "outline"} onClick={() => changeFilter(item.value)}>{item.label}</Button>)}
+        {FILTERS.map((item) => (
+          <Button
+            key={item.label}
+            size="sm"
+            variant={filter === item.value ? "default" : "outline"}
+            onClick={() => changeFilter(item.value)}
+          >
+            {item.label}
+          </Button>
+        ))}
       </div>
 
       {selected && (
-        <div className="mb-5 rounded-xl border border-primary/30 bg-primary/5 p-5">
-          <h2 className="font-medium">{action === "approve" ? "Approve and publish drive?" : action === "reject" ? "Reject this request?" : "Request corrections"}</h2>
+        <div className="mb-5 rounded-xl border border-border bg-card p-5 shadow-sharp">
+          <h2 className="font-serif text-base font-semibold text-foreground">{action === "approve" ? "Approve and publish drive?" : action === "reject" ? "Reject this request?" : "Request corrections"}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{selected.company_name} · {selected.title}</p>
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder={action === "approve" ? "Optional approval note" : "Explain the reason or exact changes required"} className="mt-3 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground" />
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder={action === "approve" ? "Optional approval note" : "Explain the reason or exact changes required"} className="mt-3 w-full rounded-md border border-input bg-background p-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none" />
           <div className="mt-3 flex justify-end gap-2"><Button variant="outline" onClick={() => setSelected(null)}>Cancel</Button><Button variant={action === "reject" ? "destructive" : "default"} disabled={reviewing} onClick={submitReview}>{reviewing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{action === "approve" ? "Approve & publish" : action === "reject" ? "Reject request" : "Send changes"}</Button></div>
         </div>
       )}
 
-      {loading ? <div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : requests.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-12 text-center"><FileClock className="mx-auto h-8 w-8 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">No drive requests in this view.</p></div>
+      {loading ? <div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-[#800020]" /></div> : requests.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center shadow-sharp"><FileClock className="mx-auto h-8 w-8 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">No drive requests in this view.</p></div>
       ) : <div className="space-y-4">
         {requests.map((request) => (
-          <article key={request.id} className="rounded-xl border border-border bg-surface p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+          <article key={request.id} className="rounded-xl border border-border bg-card p-5 shadow-sharp hover:border-[#D4AF37]/40 transition-colors">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{request.title}</h2><span className={`rounded-full px-2 py-0.5 text-xs capitalize ${STATUS_STYLE[request.status]}`}>{request.status.replace("_", " ")}</span></div>
-                <p className="mt-1 text-sm text-muted-foreground">{request.company_name} · {request.role}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-serif text-lg font-bold text-foreground">{request.title}</h2>
+                  <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_STYLE[request.status]}`}>{request.status.replace("_", " ")}</span>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground font-medium">{request.company_name} · {request.role}</p>
                 <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
                   <Info label="Package" value={request.package_lpa ? `₹${request.package_lpa} LPA` : "Not specified"} />
                   <Info label="Drive date" value={request.drive_date || "Not specified"} />
@@ -132,10 +144,10 @@ export default function UniversityDriveRequestsPage() {
                   {request.eligibility?.eligible_branches?.map((branch) => <Chip key={branch} text={branch} />)}
                 </div>
                 {request.description && <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{request.description}</p>}
-                {request.review_notes && <div className="mt-3 rounded-lg bg-elevated p-3 text-sm"><strong>Review note:</strong> {request.review_notes}</div>}
-                {request.placement_drive_id && <p className="mt-3 text-xs text-emerald-400">Placement drive created and visible to eligible students.</p>}
+                {request.review_notes && <div className="mt-3 rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground"><strong>Review note:</strong> {request.review_notes}</div>}
+                {request.placement_drive_id && <p className="mt-3 text-xs text-emerald-700 font-medium">Placement drive created and visible to eligible students.</p>}
               </div>
-              {request.status === "pending" && <div className="flex flex-wrap gap-2">
+              {request.status === "pending" && <div className="flex flex-wrap gap-2 shrink-0">
                 <Button size="sm" onClick={() => openReview(request, "approve")}><CheckCircle2 className="mr-1.5 h-4 w-4" />Approve</Button>
                 <Button size="sm" variant="outline" onClick={() => openReview(request, "request_changes")}><MessageSquareWarning className="mr-1.5 h-4 w-4" />Changes</Button>
                 <Button size="sm" variant="ghost" onClick={() => openReview(request, "reject")}><XCircle className="mr-1.5 h-4 w-4" />Reject</Button>
@@ -149,9 +161,9 @@ export default function UniversityDriveRequestsPage() {
 }
 
 function Info({ label, value }: { label: string; value: string }) {
-  return <div><div className="uppercase tracking-wide">{label}</div><div className="mt-0.5 text-sm text-foreground">{value}</div></div>;
+  return <div><div className="uppercase tracking-wider text-[10.5px] font-semibold text-muted-foreground">{label}</div><div className="mt-0.5 text-sm font-medium text-foreground">{value}</div></div>;
 }
 
 function Chip({ text }: { text: string }) {
-  return <span className="rounded bg-elevated px-2 py-1 text-xs text-muted-foreground">{text}</span>;
+  return <span className="rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs text-foreground font-medium">{text}</span>;
 }

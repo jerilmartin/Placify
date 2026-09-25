@@ -91,11 +91,11 @@ export default function NotificationsPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 md:px-6 md:py-8">
-      <div className="mb-6 flex items-end justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight md:text-[28px]">Notifications</h1>
+          <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">Notifications</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {notifications.length} updates · {unreadCount} unread
+            {notifications.length} updates · <span className="font-semibold text-[#800020]">{unreadCount} unread</span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -107,7 +107,7 @@ export default function NotificationsPage() {
             <Filter className="mr-1.5 h-3.5 w-3.5" />
             {filter === "unread" ? "Show all" : "Unread only"}
           </Button>
-          <Button size="sm" variant="ghost" disabled={marking || unreadCount === 0} onClick={handleMarkAllRead}>
+          <Button size="sm" variant="outline" disabled={marking || unreadCount === 0} onClick={handleMarkAllRead}>
             {marking ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
             Mark all read
           </Button>
@@ -116,34 +116,34 @@ export default function NotificationsPage() {
 
       {loading ? (
         <div className="flex min-h-[40vh] items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <Loader2 className="h-6 w-6 animate-spin text-[#800020]" />
         </div>
       ) : notifications.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground shadow-sharp">
           {filter === "unread" ? "No unread notifications." : "No notifications yet."}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sharp">
           <ul className="divide-y divide-border">
             {notifications.map((n, i) => {
               let Icon = Info;
-              let tint = "text-info bg-info/12";
+              let tint = "text-[#0A192F] bg-[#0A192F]/10";
 
               if (n.type === "offer_received" || n.type === "success") {
                 Icon = Trophy;
-                tint = "text-amber-400 bg-amber-400/15";
+                tint = "text-[#D4AF37] bg-[#D4AF37]/15";
               } else if (n.type === "interview_scheduled") {
                 Icon = Calendar;
-                tint = "text-purple-400 bg-purple-400/15";
+                tint = "text-[#800020] bg-[#800020]/10";
               } else if (n.type === "new_job" || n.type === "drive_registration") {
                 Icon = Briefcase;
-                tint = "text-primary bg-primary/15";
+                tint = "text-[#0A192F] bg-[#0A192F]/10";
               } else if (n.title.toLowerCase().includes("shortlisted")) {
                 Icon = Sparkles;
-                tint = "text-emerald-400 bg-emerald-400/15";
+                tint = "text-emerald-700 bg-emerald-500/15";
               } else if (n.type === "warning") {
                 Icon = AlertTriangle;
-                tint = "text-warning bg-warning/12";
+                tint = "text-amber-700 bg-amber-500/15";
               }
 
               const when = new Date(n.created_at).toLocaleDateString("en-IN", {
@@ -157,24 +157,24 @@ export default function NotificationsPage() {
                   key={n.id}
                   onClick={() => markRead(n)}
                   className={cn(
-                    "flex cursor-pointer items-start gap-3 px-5 py-4 transition-colors hover:bg-elevated/60",
-                    !n.read && i === 0 && "bg-primary/[0.04]"
+                    "flex cursor-pointer items-start gap-3 px-5 py-4 transition-colors hover:bg-muted/50",
+                    !n.read && "bg-[#800020]/[0.03]"
                   )}
                 >
-                  <div className={cn("mt-0.5 flex h-8 w-8 items-center justify-center rounded-md shrink-0", tint)}>
+                  <div className={cn("mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg shrink-0 border border-border/50", tint)}>
                     <Icon className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[13.5px] font-medium">{n.title}</div>
+                    <div className="text-[14px] font-medium text-foreground">{n.title}</div>
                     {n.message && (
-                      <div className="mt-0.5 text-[12px] text-muted-foreground">{n.message}</div>
+                      <div className="mt-0.5 text-[12.5px] text-muted-foreground">{n.message}</div>
                     )}
                     <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
                       <span>{when}</span>
                       {isDriveOrApp && (
                         <Link
                           href="/student/applications"
-                          className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                          className="inline-flex items-center gap-1 font-medium text-[#800020] hover:underline"
                           onClick={(e) => e.stopPropagation()}
                         >
                           View application <ArrowRight className="h-3 w-3" />
@@ -182,7 +182,7 @@ export default function NotificationsPage() {
                       )}
                     </div>
                   </div>
-                  {!n.read && <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+                  {!n.read && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#800020]" />}
                 </li>
               );
             })}

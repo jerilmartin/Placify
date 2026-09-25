@@ -55,17 +55,17 @@ export default function RecruiterCompanyPage() {
   return (
     <div className="mx-auto max-w-4xl p-6 md:p-8">
       <div className="mb-6">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Recruiter · Company
-          <span className={verified ? "text-emerald-400" : "text-amber-400"}>{verified ? "Verified" : "Pending verification"}</span>
+          <span className={verified ? "rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800" : "rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800"}>{verified ? "Verified" : "Pending verification"}</span>
         </div>
-        <h1 className="mt-1 text-2xl font-semibold">Company profile</h1>
+        <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-foreground">Company Profile</h1>
         <p className="mt-1 text-sm text-muted-foreground">This information identifies your company to placement teams and students.</p>
       </div>
-      <form onSubmit={save} className="space-y-5 rounded-xl border border-border bg-surface p-6">
+      <form onSubmit={save} className="space-y-5 rounded-xl border border-border bg-card p-6 shadow-sharp">
         <div className="grid gap-4 md:grid-cols-2">
           {([
-            ["company_name", "Company name"],
+            ["company_name", "Company name *"],
             ["designation", "Your designation"],
             ["industry", "Industry"],
             ["company_size", "Company size"],
@@ -74,15 +74,15 @@ export default function RecruiterCompanyPage() {
             ["contact_email", "Contact email"],
             ["contact_phone", "Contact phone"],
           ] as Array<[keyof ProfileForm, string]>).map(([key, label]) => (
-            <label key={key} className="space-y-1.5 text-xs text-muted-foreground">
+            <label key={key} className="space-y-1.5 text-xs font-medium text-foreground block">
               {label}
-              <Input value={form[key] || ""} onChange={(event) => update(key, event.target.value)} required={key === "company_name"} />
+              <Input value={form[key] || ""} onChange={(event) => update(key, event.target.value)} required={key === "company_name"} className="mt-1" />
             </label>
           ))}
         </div>
-        <label className="block space-y-1.5 text-xs text-muted-foreground">
+        <label className="block space-y-1.5 text-xs font-medium text-foreground">
           Company description
-          <textarea value={form.company_description || ""} onChange={(event) => update("company_description", event.target.value)} rows={5} className="w-full rounded-md border border-border bg-background p-3 text-sm text-foreground" />
+          <textarea value={form.company_description || ""} onChange={(event) => update("company_description", event.target.value)} rows={5} className="mt-1 w-full rounded-md border border-input bg-background p-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none" />
         </label>
         <div className="flex justify-end"><Button type="submit" disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save profile</Button></div>
       </form>

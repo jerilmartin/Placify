@@ -8,6 +8,7 @@ from typing import Optional
 from app.middleware.auth import require_student
 from app.database import get_supabase
 from app.services.gemini_service import (
+    AIServiceUnavailable,
     career_guidance_chat,
     analyze_resume_vs_job,
     predict_placement_risk,
@@ -188,6 +189,8 @@ async def resume_vs_job_analysis(request: ResumeJobAnalysisRequest, current_user
             job=job_data,
         )
         return analysis
+    except AIServiceUnavailable as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
